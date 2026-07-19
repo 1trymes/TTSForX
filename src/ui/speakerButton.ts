@@ -174,25 +174,11 @@ function findGrokCaretRow(
 
 const SHOW_MORE = '[data-testid="tweet-text-show-more-link"]';
 
-/**
- * Read only this post's body text — never quote cards / other tweetTexts.
- * Clones the node so translator <font> wrappers (Google Translate etc.)
- * don't get spoken as extra sentences.
- */
-function readPrimaryTweetText(node: HTMLElement): string {
-  const clone = node.cloneNode(true) as HTMLElement;
-  clone
-    .querySelectorAll(
-      [
-        'font',
-        '.goog-te-span',
-        '.goog-text-highlight',
-        '[data-linguist-translated]',
-        SHOW_MORE,
-      ].join(','),
-    )
-    .forEach((el) => el.remove());
-  return (clone.innerText ?? clone.textContent ?? '').trim();
+/** Read the rendered surface so speech and Start from see identical words. */
+export function readPrimaryTweetText(
+  node: Pick<HTMLElement, 'innerText' | 'textContent'>,
+): string {
+  return (node.innerText ?? node.textContent ?? '').trim();
 }
 
 /** Ordered text nodes shared by speech extraction and karaoke rendering. */

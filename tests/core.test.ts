@@ -53,6 +53,7 @@ import {
   createSpeakerPressGesture,
   finishSpeakerPointer,
   markSpeakerHold,
+  readPrimaryTweetText,
 } from '../src/ui/speakerButton';
 import { computePopoverPlacement } from '../src/ui/settingsPopover';
 import { karaokePlacementMotion } from '../src/ui/karaokeHighlight';
@@ -478,6 +479,59 @@ describe('speaker press gestures', () => {
 
     expect(finishSpeakerPointer(gesture)).toBe(true);
     expect(consumeSpeakerClick(gesture)).toBe(false);
+  });
+});
+
+describe('rendered article text extraction', () => {
+  it('keeps every paragraph-leading word in the spoken-word sequence', () => {
+    const rendered = readPrimaryTweetText({
+      innerText:
+        "First paragraph ends here.\n\nI've spent my whole life working on AGI.\n\nAGI cannot be compared to ordinary technology.",
+      textContent:
+        "First paragraph ends here.\n\nI've spent my whole life working on AGI.\n\nAGI cannot be compared to ordinary technology.",
+    });
+    const words = locateWords(prepareTextForSpeech(rendered)).map(
+      ({ text }) => text,
+    );
+
+    expect(words).toContain("I've");
+    expect(words).toContain('AGI');
+  });
+
+  it('maps a visible paragraph leader only when extraction preserves it', () => {
+    const visible = ['humanity.', 'I’ve', 'spent'].map((text) => ({
+      node: { data: text } as Text,
+      start: 0,
+      end: text.length,
+    })) satisfies DomWord[];
+    const withLeader = preparedIndexByDomIndex(
+      alignPreparedWordsToDom(['humanity.', "I've", 'spent'], visible),
+    );
+    const withoutLeader = preparedIndexByDomIndex(
+      alignPreparedWordsToDom(['humanity.', 'spent'], visible),
+    );
+
+    expect(withLeader.get(1)).toBe(1);
+    expect(withoutLeader.has(1)).toBe(false);
+    expect(withoutLeader.get(2)).toBe(1);
+  });
+
+  it('prefers rendered text over hidden duplicate text content', () => {
+    expect(
+      readPrimaryTweetText({
+        innerText: 'Visible translation',
+        textContent: 'Original textVisible translation',
+      }),
+    ).toBe('Visible translation');
+  });
+
+  it('does not revive hidden text when the rendered surface is empty', () => {
+    expect(
+      readPrimaryTweetText({
+        innerText: '',
+        textContent: 'Hidden original text',
+      }),
+    ).toBe('');
   });
 });
 

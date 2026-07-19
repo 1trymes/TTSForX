@@ -22,7 +22,7 @@
     "verify:build": "node scripts/verify-build.mjs chrome",
     "zip": "wxt zip",
     "zip:firefox": "wxt zip -b firefox",
-    "test": "vitest run",
+    "test": "node ./node_modules/vitest/vitest.mjs run --reporter=verbose",
     "typecheck": "wxt prepare && tsc --noEmit",
     "postinstall": "wxt prepare"
   },
