@@ -11,8 +11,14 @@ import { paintTtsxRoot } from './theme';
 interface WordTarget {
   article: HTMLElement;
   roots: readonly HTMLElement[];
-  words: readonly DomWord[];
   preparedByDom: ReadonlyMap<number, number>;
+  wordsByNode: ReadonlyMap<Text, readonly IndexedWord[]>;
+  wordsByElement: ReadonlyMap<Element, readonly IndexedWord[]>;
+}
+
+interface IndexedWord {
+  domIndex: number;
+  word: DomWord;
 }
 
 interface WordHit {
@@ -23,6 +29,16 @@ interface WordHit {
 }
 
 let activeCleanup: (() => void) | null = null;
+
+function appendIndexedWord<K>(
+  map: Map<K, IndexedWord[]>,
+  key: K,
+  indexed: IndexedWord,
+): void {
+  const current = map.get(key);
+  if (current) current.push(indexed);
+  else map.set(key, [indexed]);
+}
 
 function buildTarget(
   article: HTMLElement,
@@ -35,19 +51,107 @@ function buildTarget(
     alignPreparedWordsToDom(preparedWords, words),
   );
   if (!preparedByDom.size) return null;
-  return { article, roots, words, preparedByDom };
+  const wordsByNode = new Map<Text, IndexedWord[]>();
+  const wordsByElement = new Map<Element, IndexedWord[]>();
+  const rootSet = new Set<HTMLElement>(roots);
+  for (let domIndex = 0; domIndex < words.length; domIndex++) {
+    const word = words[domIndex]!;
+    const indexed = { domIndex, word };
+    appendIndexedWord(wordsByNode, word.node, indexed);
+    let element: HTMLElement | null = word.node.parentElement;
+    while (element) {
+      appendIndexedWord(wordsByElement, element, indexed);
+      if (rootSet.has(element)) break;
+      element = element.parentElement;
+    }
+  }
+  return {
+    article,
+    roots,
+    preparedByDom,
+    wordsByNode,
+    wordsByElement,
+  };
 }
 
 function articleAtPoint(clientX: number, clientY: number): HTMLElement | null {
-  const caret = document.caretPositionFromPoint(clientX, clientY);
-  if (!caret) return null;
-  const element =
-    caret.offsetNode instanceof HTMLElement
-      ? caret.offsetNode
-      : caret.offsetNode.parentElement;
+  const element = document.elementFromPoint(clientX, clientY);
   return (
     element?.closest<HTMLElement>('article[data-testid="tweet"]') ?? null
   );
+}
+
+interface CaretPoint {
+  node: Node;
+  offset: number;
+}
+
+type CaretDocument = Document & {
+  caretPositionFromPoint?: (
+    x: number,
+    y: number,
+  ) => { offsetNode: Node; offset: number } | null;
+  caretRangeFromPoint?: (x: number, y: number) => Range | null;
+};
+
+function caretAtPoint(clientX: number, clientY: number): CaretPoint | null {
+  const doc = document as CaretDocument;
+  try {
+    const position = doc.caretPositionFromPoint?.(clientX, clientY);
+    if (position) return { node: position.offsetNode, offset: position.offset };
+  } catch {
+    /* spatial hit testing below remains authoritative */
+  }
+  try {
+    const range = doc.caretRangeFromPoint?.(clientX, clientY);
+    if (range) {
+      return { node: range.startContainer, offset: range.startOffset };
+    }
+  } catch {
+    /* spatial hit testing below remains authoritative */
+  }
+  return null;
+}
+
+export function wordRectContainsPoint(
+  rect: Pick<DOMRect, 'left' | 'right' | 'top' | 'bottom'>,
+  clientX: number,
+  clientY: number,
+  padding = 2,
+): boolean {
+  return (
+    clientX >= rect.left - padding &&
+    clientX <= rect.right + padding &&
+    clientY >= rect.top - padding &&
+    clientY <= rect.bottom + padding
+  );
+}
+
+function hitIndexedWord(
+  target: WordTarget,
+  root: HTMLElement,
+  indexed: IndexedWord,
+  clientX: number,
+  clientY: number,
+): WordHit | null {
+  const preparedIndex = target.preparedByDom.get(indexed.domIndex);
+  if (preparedIndex == null) return null;
+  const rect = domWordRect(indexed.word);
+  if (!rect || !wordRectContainsPoint(rect, clientX, clientY)) return null;
+  return {
+    article: target.article,
+    root,
+    preparedIndex,
+    word: indexed.word,
+  };
+}
+
+function rootForNode(
+  target: WordTarget,
+  node: Node | null,
+): HTMLElement | null {
+  if (!node) return null;
+  return target.roots.find((root) => root.contains(node)) ?? null;
 }
 
 function wordAtPoint(
@@ -55,41 +159,69 @@ function wordAtPoint(
   clientX: number,
   clientY: number,
 ): WordHit | null {
-  const caret = document.caretPositionFromPoint(clientX, clientY);
-  if (!caret || !(caret.offsetNode instanceof Text)) return null;
-  const node = caret.offsetNode;
-  const root = target.roots.find((candidate) => candidate.contains(node));
+  const element = document.elementFromPoint(clientX, clientY);
+  const caret = caretAtPoint(clientX, clientY);
+  const root =
+    rootForNode(target, element) ?? rootForNode(target, caret?.node ?? null);
   if (!root) return null;
 
-  for (let domIndex = 0; domIndex < target.words.length; domIndex++) {
-    const word = target.words[domIndex]!;
-    if (
-      word.node !== node ||
-      caret.offset < word.start ||
-      caret.offset > word.end
-    ) {
-      continue;
+  // Fast path: use the browser's caret boundary, then confirm with the
+  // rendered word rectangle so a block-edge caret cannot select a neighbour.
+  if (caret?.node instanceof Text) {
+    for (const indexed of target.wordsByNode.get(caret.node) ?? []) {
+      const { word } = indexed;
+      if (caret.offset < word.start || caret.offset > word.end) continue;
+      const hit = hitIndexedWord(target, root, indexed, clientX, clientY);
+      if (hit) return hit;
     }
-    const preparedIndex = target.preparedByDom.get(domIndex);
-    if (preparedIndex == null) return null;
-    const rect = domWordRect(word);
-    if (
-      !rect ||
-      clientX < rect.left - 2 ||
-      clientX > rect.right + 2 ||
-      clientY < rect.top - 2 ||
-      clientY > rect.bottom + 2
-    ) {
-      return null;
+  }
+
+  // Chromium can resolve the first glyph of a block to the previous block's
+  // caret. Scan only the text-bearing element under the pointer as a precise
+  // spatial fallback; this also keeps contractions such as “I’ve” intact.
+  let candidateElement: Element | null = element;
+  while (candidateElement && root.contains(candidateElement)) {
+    const candidates = target.wordsByElement.get(candidateElement);
+    if (candidates) {
+      for (const indexed of candidates) {
+        const hit = hitIndexedWord(target, root, indexed, clientX, clientY);
+        if (hit) return hit;
+      }
     }
-    return {
-      article: target.article,
-      root,
-      preparedIndex,
-      word,
-    };
+    if (candidateElement === root) break;
+    candidateElement = candidateElement.parentElement;
   }
   return null;
+}
+
+interface HoverScheduler {
+  onPointerMove(event: PointerEvent): void;
+  cancel(): void;
+}
+
+function createHoverScheduler(
+  resolve: (clientX: number, clientY: number) => WordHit | null,
+  paint: (hit: WordHit | null) => void,
+): HoverScheduler {
+  let frame: number | null = null;
+  let clientX = 0;
+  let clientY = 0;
+  const onPointerMove = (event: PointerEvent) => {
+    clientX = event.clientX;
+    clientY = event.clientY;
+    if (frame != null) return;
+    frame = requestAnimationFrame(() => {
+      frame = null;
+      paint(resolve(clientX, clientY));
+    });
+  };
+  return {
+    onPointerMove,
+    cancel() {
+      if (frame != null) cancelAnimationFrame(frame);
+      frame = null;
+    },
+  };
 }
 
 function createHover(): HTMLDivElement {
@@ -142,16 +274,13 @@ export function startWordPicker(
   for (const root of target.roots) {
     root.classList.add('ttsx-word-picker-active');
   }
-  let currentHit: WordHit | null = null;
-
-  const hitFromPointer = (event: PointerEvent | MouseEvent) =>
-    wordAtPoint(target, event.clientX, event.clientY);
-  const onPointerMove = (event: PointerEvent) => {
-    currentHit = hitFromPointer(event);
-    paintHover(hover, currentHit);
-  };
+  const hitFromPoint = (clientX: number, clientY: number) =>
+    wordAtPoint(target, clientX, clientY);
+  const hoverScheduler = createHoverScheduler(hitFromPoint, (hit) =>
+    paintHover(hover, hit),
+  );
   const onClick = (event: MouseEvent) => {
-    const hit = hitFromPointer(event) ?? currentHit;
+    const hit = hitFromPoint(event.clientX, event.clientY);
     if (!hit) return;
     event.preventDefault();
     event.stopImmediatePropagation();
@@ -164,13 +293,18 @@ export function startWordPicker(
     stopWordPicker();
   };
 
-  document.addEventListener('pointermove', onPointerMove, true);
+  document.addEventListener('pointermove', hoverScheduler.onPointerMove, true);
   document.addEventListener('click', onClick, true);
   document.addEventListener('keydown', onKeyDown, true);
   activeCleanup = () => {
-    document.removeEventListener('pointermove', onPointerMove, true);
+    document.removeEventListener(
+      'pointermove',
+      hoverScheduler.onPointerMove,
+      true,
+    );
     document.removeEventListener('click', onClick, true);
     document.removeEventListener('keydown', onKeyDown, true);
+    hoverScheduler.cancel();
     for (const root of target.roots) {
       root.classList.remove('ttsx-word-picker-active');
     }
@@ -194,7 +328,6 @@ export function startFeedWordPicker(
   const hover = createHover();
   hover.dataset.feedPicker = 'true';
   const targets = new WeakMap<HTMLElement, WordTarget>();
-  let currentHit: WordHit | null = null;
   let activeRoot: HTMLElement | null = null;
 
   function paintActiveRoot(root: HTMLElement | null): void {
@@ -219,24 +352,22 @@ export function startFeedWordPicker(
     return target;
   }
 
-  const hitFromPointer = (event: PointerEvent | MouseEvent) => {
-    const target = targetAtPoint(event.clientX, event.clientY);
+  const hitFromPoint = (clientX: number, clientY: number) => {
+    const target = targetAtPoint(clientX, clientY);
     return target
-      ? wordAtPoint(target, event.clientX, event.clientY)
+      ? wordAtPoint(target, clientX, clientY)
       : null;
   };
-  const onPointerMove = (event: PointerEvent) => {
-    currentHit = hitFromPointer(event);
-    paintActiveRoot(currentHit?.root ?? null);
-    paintHover(hover, currentHit);
-  };
+  const hoverScheduler = createHoverScheduler(hitFromPoint, (hit) => {
+    paintActiveRoot(hit?.root ?? null);
+    paintHover(hover, hit);
+  });
   const onClick = (event: MouseEvent) => {
-    const hit = hitFromPointer(event) ?? currentHit;
+    const hit = hitFromPoint(event.clientX, event.clientY);
     if (!hit) return;
     event.preventDefault();
     event.stopImmediatePropagation();
     targets.delete(hit.article);
-    currentHit = null;
     paintActiveRoot(null);
     paintHover(hover, null);
     onSelect(hit.article, hit.preparedIndex);
@@ -247,13 +378,18 @@ export function startFeedWordPicker(
     stopWordPicker();
   };
 
-  document.addEventListener('pointermove', onPointerMove, true);
+  document.addEventListener('pointermove', hoverScheduler.onPointerMove, true);
   document.addEventListener('click', onClick, true);
   document.addEventListener('keydown', onKeyDown, true);
   activeCleanup = () => {
-    document.removeEventListener('pointermove', onPointerMove, true);
+    document.removeEventListener(
+      'pointermove',
+      hoverScheduler.onPointerMove,
+      true,
+    );
     document.removeEventListener('click', onClick, true);
     document.removeEventListener('keydown', onKeyDown, true);
+    hoverScheduler.cancel();
     paintActiveRoot(null);
     hover.remove();
   };

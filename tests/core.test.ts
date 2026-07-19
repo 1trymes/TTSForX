@@ -59,6 +59,12 @@ import { karaokePlacementMotion } from '../src/ui/karaokeHighlight';
 import { rangeFillPercent } from '../src/ui/rangeFill';
 import { selectedVoiceScrollTop } from '../src/ui/voiceMenu';
 import {
+  alignPreparedWordsToDom,
+  preparedIndexByDomIndex,
+  type DomWord,
+} from '../src/ui/domWordMap';
+import { wordRectContainsPoint } from '../src/ui/wordPicker';
+import {
   actionIconSize,
   resolveActionIconColor,
   syncActionIconAppearance,
@@ -264,6 +270,32 @@ describe('playback controls and acoustic karaoke timing', () => {
       { start: 0.6, end: 1.15 },
       { start: 1.2, end: 1.5 },
     ]);
+  });
+
+  it('keeps contractions aligned at paragraph starts', () => {
+    const visible = ['humanity.', 'I’ve', 'spent', 'my'].map((text) => ({
+      node: { data: text } as Text,
+      start: 0,
+      end: text.length,
+    })) satisfies DomWord[];
+    const preparedToDom = alignPreparedWordsToDom(
+      ['humanity.', "I've", 'spent', 'my'],
+      visible,
+    );
+    const preparedByDom = preparedIndexByDomIndex(preparedToDom);
+
+    expect(preparedToDom).toEqual([0, 1, 2, 3]);
+    expect(preparedByDom.get(1)).toBe(1);
+    expect(preparedByDom.get(2)).toBe(2);
+  });
+
+  it('accepts the first glyph edge only for the word actually under it', () => {
+    const rect = { left: 100, right: 130, top: 50, bottom: 70 };
+    expect(wordRectContainsPoint(rect, 100, 60)).toBe(true);
+    expect(wordRectContainsPoint(rect, 98, 60)).toBe(true);
+    expect(wordRectContainsPoint(rect, 97, 60)).toBe(false);
+    expect(wordRectContainsPoint(rect, 132, 60)).toBe(true);
+    expect(wordRectContainsPoint(rect, 133, 60)).toBe(false);
   });
 
   it('rejects incomplete acoustic alignment instead of using a fallback', () => {
