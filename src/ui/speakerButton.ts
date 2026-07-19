@@ -9,7 +9,7 @@
 import { debugHandledFailure } from '../diagnostics';
 import { hasSpeakableText } from '../tts/prepareText';
 import { MARKED_ATTR, SELECTORS } from '../x/selectors';
-import { primaryReadingTextRoot } from '../x/textRoot';
+import { readingTextRoots } from '../x/textRoot';
 import { closePopover, openSettingsPopover } from './settingsPopover';
 import { paintTtsxRoot, syncActionIconAppearance } from './theme';
 
@@ -195,9 +195,9 @@ function readPrimaryTweetText(node: HTMLElement): string {
   return (clone.innerText ?? clone.textContent ?? '').trim();
 }
 
-/** Primary body node shared by speech extraction and karaoke rendering. */
-function primaryTweetTextNode(article: HTMLElement): HTMLElement | null {
-  return primaryReadingTextRoot(article);
+/** Ordered text nodes shared by speech extraction and karaoke rendering. */
+function primaryTweetTextNodes(article: HTMLElement): HTMLElement[] {
+  return readingTextRoots(article);
 }
 
 function showMoreControl(article: HTMLElement): HTMLElement | null {
@@ -213,8 +213,10 @@ export async function expandTweetText(article: HTMLElement): Promise<void> {
   const btn = showMoreControl(article);
   if (!btn || !article.isConnected) return;
 
-  const primary = primaryTweetTextNode(article);
-  const before = primary?.textContent?.length ?? 0;
+  const before = primaryTweetTextNodes(article).reduce(
+    (length, node) => length + (node.textContent?.length ?? 0),
+    0,
+  );
 
   try {
     btn.click();
@@ -226,7 +228,10 @@ export async function expandTweetText(article: HTMLElement): Promise<void> {
     await new Promise<void>((r) => requestAnimationFrame(() => r()));
     if (!article.isConnected) return;
     const still = showMoreControl(article);
-    const after = primaryTweetTextNode(article)?.textContent?.length ?? 0;
+    const after = primaryTweetTextNodes(article).reduce(
+      (length, node) => length + (node.textContent?.length ?? 0),
+      0,
+    );
     if (!still || after > before + 8) {
       await new Promise((r) => setTimeout(r, 50));
       return;
@@ -248,19 +253,22 @@ function stripShowMoreLabel(article: HTMLElement, text: string): string {
  * Call {@link expandTweetText} first when you need the full long post.
  */
 export function extractTweetText(article: HTMLElement): string {
-  const primary = primaryTweetTextNode(article);
-  let text = primary ? readPrimaryTweetText(primary) : '';
+  const roots = primaryTweetTextNodes(article);
+  const sections: string[] = [];
 
   // Hidden continuation spans (when X keeps them in the primary node).
-  if (primary) {
-    for (const h of primary.querySelectorAll<HTMLElement>(
+  for (const root of roots) {
+    let section = readPrimaryTweetText(root);
+    for (const h of root.querySelectorAll<HTMLElement>(
       'span[aria-hidden="true"]',
     )) {
       const t = (h.innerText ?? h.textContent ?? '').trim();
-      if (t && !text.includes(t)) text = `${text} ${t}`.trim();
+      if (t && !section.includes(t)) section = `${section} ${t}`.trim();
     }
+    if (section) sections.push(section);
   }
 
+  let text = sections.join('\n');
   text = stripShowMoreLabel(article, text);
   return text.replace(/\s+\n/g, '\n').trim();
 }

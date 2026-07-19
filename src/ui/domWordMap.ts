@@ -24,6 +24,13 @@ export function buildDomWords(root: HTMLElement): DomWord[] {
   return words;
 }
 
+/** Preserve visual reading order across an X Article title and body. */
+export function buildDomWordsForRoots(
+  roots: readonly HTMLElement[],
+): DomWord[] {
+  return roots.flatMap((root) => buildDomWords(root));
+}
+
 function normalizeWord(word: string): string {
   return word.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
 }
@@ -110,4 +117,3 @@ export function domWordRect(word: DomWord): DOMRect | null {
   }
   return new DOMRect(left, top, right - left, bottom - top);
 }
-

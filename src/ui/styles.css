@@ -241,7 +241,7 @@
 
 /*
  * Settings sheet — match captured X Dropdown panel:
- * width ~297, radius 12, bg rgb(20,20,20), dual drop shadow, no border.
+ * Compact X-native panel: 12px radius, 44px rows, exact dropdown surface.
  * Fixed to viewport (anchored to the button) — never mutates article layout.
  */
 .ttsx-popover {
@@ -249,7 +249,7 @@
   /* X's sticky For you / Following navigation uses the next layer above. */
   z-index: 2;
   box-sizing: border-box;
-  width: min(297px, calc(100vw - 24px));
+  width: min(280px, calc(100vw - 16px));
   padding: 0;
   border-radius: 12px;
   background-color: var(--ttsx-surface);
@@ -261,13 +261,18 @@
     Helvetica, Arial, sans-serif;
   font-size: 15px;
   line-height: 20px;
-  animation: ttsx-pop 0.12s ease-out;
+  transform-origin: bottom right;
+  animation: ttsx-pop-above 0.14s cubic-bezier(0.2, 0, 0, 1);
   max-height: calc(100vh - 16px);
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
 }
-@keyframes ttsx-pop {
+.ttsx-popover[data-ttsx-placement='below'] {
+  transform-origin: top right;
+  animation-name: ttsx-pop-below;
+}
+@keyframes ttsx-pop-above {
   from {
     opacity: 0;
     transform: translateY(4px) scale(0.98);
@@ -277,16 +282,31 @@
     transform: none;
   }
 }
+@keyframes ttsx-pop-below {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ttsx-popover {
+    animation: none;
+  }
+}
 
 .ttsx-field {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   margin: 0;
-  padding: 4px 16px 12px;
+  padding: 6px 16px 10px;
 }
 .ttsx-field:first-child {
-  padding-top: 8px;
+  padding-top: 4px;
 }
 
 .ttsx-field-label {
@@ -328,7 +348,8 @@
   gap: 12px;
   width: 100%;
   margin: 0;
-  padding: 12px 16px;
+  min-height: 44px;
+  padding: 10px 16px;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -339,6 +360,7 @@
   line-height: 20px;
   cursor: pointer;
   text-align: left;
+  transition: background-color 0.2s, box-shadow 0.2s;
 }
 .ttsx-field--voice {
   padding: 4px 0 0;
@@ -375,7 +397,7 @@
 .ttsx-voice-list {
   display: flex;
   flex-direction: column;
-  max-height: 220px;
+  max-height: 196px;
   overflow-y: auto;
   margin: 0;
   border: 0;
@@ -387,8 +409,8 @@
   display: none !important;
 }
 .ttsx-voice-group {
-  padding: 12px 16px 4px;
-  font-size: 13px;
+  padding: 10px 16px 2px;
+  font-size: 12px;
   font-weight: 700;
   line-height: 16px;
   color: var(--ttsx-muted);
@@ -402,13 +424,18 @@
   border: 0;
   background: transparent;
   color: var(--ttsx-fg);
+  transition: background-color 0.2s, box-shadow 0.2s;
 }
 .ttsx-voice-select {
   appearance: none;
   flex: 1 1 auto;
   min-width: 0;
   margin: 0;
-  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 40px;
+  padding: 10px 12px 10px 16px;
   border: 0;
   background: transparent;
   color: inherit;
@@ -418,6 +445,13 @@
   line-height: 20px;
   text-align: left;
   cursor: pointer;
+}
+.ttsx-voice-opt[aria-selected='true'] .ttsx-voice-select::after {
+  content: '✓';
+  margin-left: 10px;
+  color: var(--ttsx-accent);
+  font-size: 14px;
+  font-weight: 700;
 }
 .ttsx-voice-opt:hover,
 .ttsx-voice-opt:focus-within {
@@ -476,9 +510,13 @@
   appearance: none;
   width: 100%;
   height: 4px;
-  margin: 4px 0 0;
+  margin: 2px 0 0;
   border-radius: 9999px;
-  background: var(--ttsx-line);
+  background: linear-gradient(
+    to right,
+    var(--ttsx-accent) 0 var(--ttsx-range-fill, 0%),
+    var(--ttsx-line) var(--ttsx-range-fill, 0%) 100%
+  );
   outline: none;
   accent-color: var(--ttsx-accent);
 }
@@ -492,6 +530,13 @@
   border: 0;
   cursor: pointer;
   box-shadow: none;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+.ttsx-range:hover::-webkit-slider-thumb {
+  transform: scale(1.08);
+}
+.ttsx-range:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px var(--ttsx-accent-bg-strong);
 }
 .ttsx-range::-moz-range-thumb {
   width: 16px;
@@ -511,16 +556,44 @@
   flex-direction: row;
   align-items: center;
   justify-content: space-between;
-  padding-top: 8px;
-  padding-bottom: 14px;
+  min-height: 44px;
+  padding-top: 11px;
+  padding-bottom: 11px;
   border-top: 1px solid var(--ttsx-line);
 }
 
 .ttsx-check {
-  width: 18px;
-  height: 18px;
+  appearance: none;
+  position: relative;
+  width: 34px;
+  height: 20px;
   margin: 0;
-  accent-color: var(--ttsx-accent);
+  border: 0;
+  border-radius: 9999px;
+  background: var(--ttsx-line);
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+.ttsx-check::before {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--ttsx-fg);
+  transition: transform 0.2s cubic-bezier(0.2, 0, 0, 1);
+}
+.ttsx-check:checked {
+  background: var(--ttsx-accent);
+}
+.ttsx-check:checked::before {
+  transform: translateX(14px);
+}
+.ttsx-check:focus-visible {
+  outline: 2px solid var(--ttsx-accent);
+  outline-offset: 2px;
 }
 
 .ttsx-start-field {
@@ -536,7 +609,8 @@
   gap: 12px;
   width: 100%;
   margin: 0;
-  padding: 12px 16px;
+  min-height: 44px;
+  padding: 11px 16px;
   border: 0;
   background: transparent;
   color: var(--ttsx-fg);
@@ -544,6 +618,7 @@
   line-height: 20px;
   text-align: left;
   cursor: pointer;
+  transition: background-color 0.2s, box-shadow 0.2s;
 }
 .ttsx-start-btn:hover,
 .ttsx-start-btn:focus-visible {

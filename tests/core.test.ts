@@ -54,11 +54,20 @@ import {
   finishSpeakerPointer,
   markSpeakerHold,
 } from '../src/ui/speakerButton';
+import { computePopoverPlacement } from '../src/ui/settingsPopover';
+import { karaokePlacementMotion } from '../src/ui/karaokeHighlight';
+import { rangeFillPercent } from '../src/ui/rangeFill';
 import {
   actionIconSize,
   resolveActionIconColor,
   syncActionIconAppearance,
 } from '../src/ui/theme';
+import {
+  ARTICLE_TITLE_ROOT,
+  LONG_FORM_TEXT_ROOT,
+  readingTextRoots,
+} from '../src/x/textRoot';
+import { SELECTORS } from '../src/x/selectors';
 
 afterEach(() => {
   cacheClear();
@@ -416,5 +425,130 @@ describe('speaker press gestures', () => {
 
     expect(finishSpeakerPointer(gesture)).toBe(true);
     expect(consumeSpeakerClick(gesture)).toBe(false);
+  });
+});
+
+describe('settings placement', () => {
+  it('opens above a low speaker and stays inside the viewport', () => {
+    expect(
+      computePopoverPlacement(
+        { top: 700, right: 950, bottom: 735, left: 915 },
+        297,
+        400,
+        { top: 0, left: 0, width: 1000, height: 800 },
+      ),
+    ).toEqual({
+      top: 292,
+      left: 653,
+      maxHeight: 684,
+      maxWidth: 984,
+      side: 'above',
+    });
+  });
+
+  it('opens below a high speaker and clamps narrow viewports', () => {
+    expect(
+      computePopoverPlacement(
+        { top: 20, right: 310, bottom: 55, left: 275 },
+        297,
+        500,
+        { top: 0, left: 0, width: 320, height: 400 },
+      ),
+    ).toEqual({
+      top: 63,
+      left: 13,
+      maxHeight: 329,
+      maxWidth: 304,
+      side: 'below',
+    });
+  });
+
+  it('keeps its chosen side and scrolls internally when space shrinks', () => {
+    expect(
+      computePopoverPlacement(
+        { top: 208, right: 300, bottom: 243, left: 265 },
+        297,
+        600,
+        { top: 0, left: 0, width: 320, height: 443 },
+        'above',
+      ),
+    ).toEqual({
+      top: 8,
+      left: 8,
+      maxHeight: 192,
+      maxWidth: 304,
+      side: 'above',
+    });
+  });
+
+  it('switches sides when scrolling leaves no useful room on the saved side', () => {
+    expect(
+      computePopoverPlacement(
+        { top: 24, right: 950, bottom: 59, left: 915 },
+        297,
+        400,
+        { top: 0, left: 0, width: 1000, height: 800 },
+        'above',
+      ).side,
+    ).toBe('below');
+  });
+});
+
+describe('settings range fill', () => {
+  it('tracks the value and clamps the painted accent segment', () => {
+    expect(rangeFillPercent(0.5, 1.5, 1)).toBe(50);
+    expect(rangeFillPercent(0, 2, -1)).toBe(0);
+    expect(rangeFillPercent(0, 2, 3)).toBe(100);
+    expect(rangeFillPercent(1, 1, 1)).toBe(0);
+  });
+});
+
+describe('karaoke pill movement', () => {
+  it('snaps to the first timed word instead of animating from the article origin', () => {
+    expect(karaokePlacementMotion(-1, 0)).toBe('snap');
+    expect(karaokePlacementMotion(-1, 14)).toBe('snap');
+  });
+
+  it('morphs only between two distinct, established word positions', () => {
+    expect(karaokePlacementMotion(0, 1)).toBe('morph');
+    expect(karaokePlacementMotion(7, 7)).toBe('none');
+    expect(karaokePlacementMotion(7, -1)).toBe('none');
+  });
+});
+
+describe('X Article reading surfaces', () => {
+  function rootInside(article: HTMLElement): HTMLElement {
+    return {
+      parentElement: article,
+      closest: (selector: string) =>
+        selector === 'article' ? article : null,
+    } as unknown as HTMLElement;
+  }
+
+  it('reads an Article headline before its rich-text body', () => {
+    const article = {} as HTMLElement;
+    const title = rootInside(article);
+    const body = rootInside(article);
+    article.querySelector = ((selector: string) =>
+      selector === ARTICLE_TITLE_ROOT ? title : null) as typeof article.querySelector;
+    article.querySelectorAll = ((selector: string) => {
+      if (selector === SELECTORS.tweetText) return [];
+      if (selector === LONG_FORM_TEXT_ROOT) return [body];
+      return [];
+    }) as unknown as typeof article.querySelectorAll;
+
+    expect(readingTextRoots(article)).toEqual([title, body]);
+  });
+
+  it('keeps ordinary posts on their single primary text surface', () => {
+    const article = {} as HTMLElement;
+    const tweet = rootInside(article);
+    const title = rootInside(article);
+    article.querySelector = ((selector: string) =>
+      selector === ARTICLE_TITLE_ROOT ? title : null) as typeof article.querySelector;
+    article.querySelectorAll = ((selector: string) =>
+      selector === SELECTORS.tweetText ? [tweet] : []) as unknown as typeof article.querySelectorAll;
+
+    expect(readingTextRoots(article)).toEqual([tweet]);
   });
 });

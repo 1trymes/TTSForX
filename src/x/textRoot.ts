@@ -2,6 +2,7 @@ import { SELECTORS } from './selectors';
 
 export const LONG_FORM_TEXT_ROOT =
   '[data-testid="twitterArticleRichTextView"], [data-testid="note-text"]';
+export const ARTICLE_TITLE_ROOT = '[data-testid="twitter-article-title"]';
 
 /** True when a candidate belongs to a quote, card, or nested post. */
 function isForeignTextRoot(
@@ -35,19 +36,33 @@ function isForeignTextRoot(
  * same function so audio and captions cannot disagree across timeline posts,
  * status pages, Notes, or long-form X Articles.
  */
-export function primaryReadingTextRoot(
+export function readingTextRoots(
   article: HTMLElement,
-): HTMLElement | null {
+): HTMLElement[] {
   for (const node of article.querySelectorAll<HTMLElement>(
     SELECTORS.tweetText,
   )) {
-    if (!isForeignTextRoot(node, article)) return node;
+    if (!isForeignTextRoot(node, article)) return [node];
   }
+
+  const roots: HTMLElement[] = [];
+  const title = article.querySelector<HTMLElement>(ARTICLE_TITLE_ROOT);
+  if (title && !isForeignTextRoot(title, article)) roots.push(title);
 
   for (const node of article.querySelectorAll<HTMLElement>(
     LONG_FORM_TEXT_ROOT,
   )) {
-    if (!isForeignTextRoot(node, article)) return node;
+    if (!isForeignTextRoot(node, article)) {
+      roots.push(node);
+      break;
+    }
   }
-  return null;
+  return roots;
+}
+
+/** First visible reading surface, retained for narrow single-root callers. */
+export function primaryReadingTextRoot(
+  article: HTMLElement,
+): HTMLElement | null {
+  return readingTextRoots(article)[0] ?? null;
 }

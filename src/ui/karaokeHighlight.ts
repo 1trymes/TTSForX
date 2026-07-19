@@ -3,10 +3,10 @@
  * Absolute positioning under the article — scrolls with the post; no scroll
  * listeners or per-frame repositioning.
  */
-import { primaryReadingTextRoot } from '../x/textRoot';
+import { readingTextRoots } from '../x/textRoot';
 import {
   alignPreparedWordsToDom,
-  buildDomWords,
+  buildDomWordsForRoots,
   domWordRect,
   type DomWord,
 } from './domWordMap';
@@ -15,13 +15,35 @@ import { paintTtsxRoot } from './theme';
 let pill: HTMLDivElement | null = null;
 let host: HTMLElement | null = null;
 let articleEl: HTMLElement | null = null;
-let textRoot: HTMLElement | null = null;
+let textRoots: HTMLElement[] = [];
 let preparedWords: readonly string[] = [];
 let domWords: DomWord[] = [];
 /** preparedWordIndex → domWords index */
 let alignMap: number[] = [];
 let activeDomIndex = -1;
 let hostPrevPosition = '';
+let revealFrame: number | null = null;
+
+export type KaraokePlacementMotion = 'none' | 'snap' | 'morph';
+
+/**
+ * A newly created (or newly resumed) pill has no meaningful previous
+ * geometry. Its first placement must therefore snap into position; animating
+ * that move would make it travel from the article origin to the first word.
+ */
+export function karaokePlacementMotion(
+  previousDomIndex: number,
+  nextDomIndex: number,
+): KaraokePlacementMotion {
+  if (nextDomIndex < 0 || nextDomIndex === previousDomIndex) return 'none';
+  return previousDomIndex < 0 ? 'snap' : 'morph';
+}
+
+function cancelPendingReveal(): void {
+  if (revealFrame == null) return;
+  cancelAnimationFrame(revealFrame);
+  revealFrame = null;
+}
 
 function ensureHost(article: HTMLElement): HTMLElement {
   if (host?.isConnected && host.parentElement === article) return host;
@@ -45,6 +67,7 @@ function ensureHost(article: HTMLElement): HTMLElement {
 }
 
 function teardownHost(): void {
+  cancelPendingReveal();
   pill?.remove();
   pill = null;
   host?.remove();
@@ -73,6 +96,7 @@ function ensurePill(article: HTMLElement): HTMLDivElement {
 }
 
 function hidePill(): void {
+  cancelPendingReveal();
   pill?.classList.remove('ttsx-karaoke-pill--on');
 }
 
@@ -97,21 +121,48 @@ function placePillOver(word: DomWord, morph: boolean): void {
   const width = Math.max(4, wordRect.width + padX * 2);
   const height = Math.max(4, wordRect.height + padY * 2);
 
+  cancelPendingReveal();
   el.classList.toggle('ttsx-karaoke-pill--snap', !morph);
   el.style.width = `${Math.round(width)}px`;
   el.style.height = `${Math.round(height)}px`;
   el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
-  el.classList.add('ttsx-karaoke-pill--on');
+
+  if (morph) {
+    el.classList.add('ttsx-karaoke-pill--on');
+    return;
+  }
+
+  // Let the browser commit the correct first-word geometry while the pill is
+  // hidden. Revealing it on the next frame prevents a visible trip from 0,0.
+  el.classList.remove('ttsx-karaoke-pill--on');
+  revealFrame = requestAnimationFrame(() => {
+    revealFrame = null;
+    if (pill !== el || !el.isConnected) return;
+    el.classList.add('ttsx-karaoke-pill--on');
+    revealFrame = requestAnimationFrame(() => {
+      revealFrame = null;
+      if (pill === el && el.isConnected) {
+        el.classList.remove('ttsx-karaoke-pill--snap');
+      }
+    });
+  });
 }
 
 function rebuildDomIfNeeded(): boolean {
   if (!articleEl?.isConnected) return false;
-  if (textRoot?.isConnected && domWords.length) return true;
-  const root = primaryReadingTextRoot(articleEl);
-  if (!root || !preparedWords.length) return false;
-  textRoot = root;
-  domWords = buildDomWords(root);
+  if (
+    textRoots.length &&
+    textRoots.every((root) => root.isConnected) &&
+    domWords.length
+  ) {
+    return true;
+  }
+  const roots = readingTextRoots(articleEl);
+  if (!roots.length || !preparedWords.length) return false;
+  textRoots = roots;
+  domWords = buildDomWordsForRoots(roots);
   alignMap = alignPreparedWordsToDom(preparedWords, domWords);
+  activeDomIndex = -1;
   return domWords.length > 0;
 }
 
@@ -120,17 +171,16 @@ export function startKaraoke(
   words: readonly string[],
 ): void {
   stopKaraoke();
-  const root = primaryReadingTextRoot(article);
-  if (!root || !words.length) return;
+  const roots = readingTextRoots(article);
+  if (!roots.length || !words.length) return;
 
   articleEl = article;
-  textRoot = root;
+  textRoots = roots;
   preparedWords = words;
-  domWords = buildDomWords(root);
+  domWords = buildDomWordsForRoots(roots);
   if (!domWords.length) return;
   alignMap = alignPreparedWordsToDom(preparedWords, domWords);
   activeDomIndex = -1;
-  ensurePill(article);
 }
 
 export function updateKaraoke(preparedWordIndex: number | null): void {
@@ -145,15 +195,16 @@ export function updateKaraoke(preparedWordIndex: number | null): void {
   }
   const domIndex = alignMap[preparedWordIndex] ?? -1;
   if (domIndex < 0 || !domWords[domIndex]) return;
-  if (domIndex === activeDomIndex) return;
+  const motion = karaokePlacementMotion(activeDomIndex, domIndex);
+  if (motion === 'none') return;
   activeDomIndex = domIndex;
-  placePillOver(domWords[domIndex]!, true);
+  placePillOver(domWords[domIndex]!, motion === 'morph');
 }
 
 export function stopKaraoke(): void {
   teardownHost();
   articleEl = null;
-  textRoot = null;
+  textRoots = [];
   preparedWords = [];
   domWords = [];
   alignMap = [];

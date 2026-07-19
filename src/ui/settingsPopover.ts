@@ -18,6 +18,7 @@ import {
 import { DEFAULT_VOICE, MENU_VOICES } from '../tts/voices';
 import { applyTheme, paintTtsxRoot, syncActionIconColor } from './theme';
 import { bindGenerationQualityRange } from './qualityRange';
+import { bindRangeFill, paintRangeFill } from './rangeFill';
 
 let openEl: HTMLElement | null = null;
 let outsideHandler: ((e: Event) => void) | null = null;
@@ -105,21 +106,123 @@ const ICON_PICK_WORD = `
     <path d="M5 3l13 9-7 2 4 7-2 1-4-7-4 4V3z"/>
   </svg>`;
 
-/** Place as position:fixed near the anchor button. */
+export type PopoverSide = 'above' | 'below';
+
+interface RectangleEdges {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+}
+
+interface ViewportRectangle {
+  top: number;
+  left: number;
+  width: number;
+  height: number;
+}
+
+interface PopoverPlacement {
+  top: number;
+  left: number;
+  maxHeight: number;
+  maxWidth: number;
+  side: PopoverSide;
+}
+
+export function computePopoverPlacement(
+  anchor: RectangleEdges,
+  popWidth: number,
+  popHeight: number,
+  viewport: ViewportRectangle,
+  preferredSide?: PopoverSide,
+): PopoverPlacement {
+  const padding = 8;
+  const gap = 8;
+  const right = viewport.left + viewport.width;
+  const bottom = viewport.top + viewport.height;
+  const maxWidth = Math.max(1, viewport.width - padding * 2);
+  const width = Math.min(popWidth, maxWidth);
+  const above = Math.max(
+    0,
+    anchor.top - viewport.top - padding - gap,
+  );
+  const below = Math.max(0, bottom - padding - anchor.bottom - gap);
+
+  let side: PopoverSide;
+  const preferredSpace = preferredSide === 'above' ? above : below;
+  const alternateSpace = preferredSide === 'above' ? below : above;
+  const minimumUsefulHeight = Math.min(
+    popHeight,
+    Math.max(1, viewport.height - padding * 2),
+    160,
+  );
+  if (
+    preferredSide &&
+    (preferredSpace >= minimumUsefulHeight || preferredSpace >= alternateSpace)
+  ) {
+    side = preferredSide;
+  } else if (popHeight <= above) {
+    side = 'above';
+  } else if (popHeight <= below) {
+    side = 'below';
+  } else {
+    side = above >= below ? 'above' : 'below';
+  }
+
+  const sideHeight = side === 'above' ? above : below;
+  const maxHeight = Math.max(1, Math.min(viewport.height - padding * 2, sideHeight));
+  const height = Math.min(popHeight, maxHeight);
+  const unclampedTop =
+    side === 'above' ? anchor.top - gap - height : anchor.bottom + gap;
+  const top = Math.max(
+    viewport.top + padding,
+    Math.min(unclampedTop, bottom - padding - height),
+  );
+  const left = Math.max(
+    viewport.left + padding,
+    Math.min(anchor.right - width, right - padding - width),
+  );
+
+  return { top, left, maxHeight, maxWidth, side };
+}
+
+function currentViewport(): ViewportRectangle {
+  const visual = window.visualViewport;
+  return {
+    top: visual?.offsetTop ?? 0,
+    left: visual?.offsetLeft ?? 0,
+    width: visual?.width ?? window.innerWidth,
+    height: visual?.height ?? window.innerHeight,
+  };
+}
+
+/** Place the fixed panel beside its speaker without leaving the viewport. */
 function placeNearAnchor(pop: HTMLElement, anchor: HTMLElement): void {
+  const viewport = currentViewport();
+  pop.style.maxWidth = `${Math.max(1, Math.floor(viewport.width - 16))}px`;
+  pop.style.maxHeight = `${Math.max(1, Math.floor(viewport.height - 16))}px`;
+
   const btn = anchor.getBoundingClientRect();
-  const pad = 8;
-  const pw = pop.offsetWidth;
-  const ph = pop.offsetHeight;
+  // Layout dimensions are stable while the opening animation is transforming
+  // the panel; getBoundingClientRect() would measure the temporary scale and
+  // cause a visible correction when the animation ends.
+  const panelWidth = pop.offsetWidth;
+  const panelHeight = pop.offsetHeight;
+  const savedSide = pop.dataset.ttsxPlacement as PopoverSide | undefined;
+  const placement = computePopoverPlacement(
+    btn,
+    panelWidth,
+    panelHeight,
+    viewport,
+    savedSide,
+  );
 
-  let top = btn.top - ph - 8;
-  if (top < pad) top = btn.bottom + 8;
-
-  let left = btn.right - pw;
-  left = Math.max(pad, Math.min(left, window.innerWidth - pw - pad));
-
-  pop.style.left = `${Math.round(left)}px`;
-  pop.style.top = `${Math.round(top)}px`;
+  pop.dataset.ttsxPlacement = placement.side;
+  pop.style.maxWidth = `${Math.floor(placement.maxWidth)}px`;
+  pop.style.maxHeight = `${Math.floor(placement.maxHeight)}px`;
+  pop.style.left = `${Math.round(placement.left)}px`;
+  pop.style.top = `${Math.round(placement.top)}px`;
 }
 
 export async function openSettingsPopover(
@@ -235,6 +338,24 @@ export async function openSettingsPopover(
   openEl = pop;
   placeNearAnchor(pop, anchor);
 
+  let placementFrame: number | null = null;
+  const schedulePlacement = () => {
+    if (placementFrame != null) cancelAnimationFrame(placementFrame);
+    placementFrame = requestAnimationFrame(() => {
+      placementFrame = null;
+      if (
+        generation === popoverGeneration &&
+        pop.isConnected &&
+        anchor.isConnected
+      ) {
+        placeNearAnchor(pop, anchor);
+      }
+    });
+  };
+  window.addEventListener('resize', schedulePlacement);
+  window.visualViewport?.addEventListener('resize', schedulePlacement);
+  window.visualViewport?.addEventListener('scroll', schedulePlacement);
+
   const voiceBtn = pop.querySelector<HTMLButtonElement>('[data-ttsx="voiceBtn"]')!;
   const voiceCatEl = pop.querySelector<HTMLElement>('[data-ttsx="voiceCat"]')!;
   const voiceNameEl = pop.querySelector<HTMLElement>('[data-ttsx="voiceName"]')!;
@@ -297,6 +418,7 @@ export async function openSettingsPopover(
     list.hidden = !open;
     voiceBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
     pop.classList.toggle('ttsx-voice-open', open);
+    schedulePlacement();
   }
 
   voiceBtn.addEventListener('click', (e) => {
@@ -370,6 +492,7 @@ export async function openSettingsPopover(
     void saveSettings({ steps: v });
     },
   );
+  const disposeRangeFills = [speedEl, volumeEl, stepsEl].map(bindRangeFill);
   karaokeEl.addEventListener('change', () => {
     void saveSettings({ karaoke: karaokeEl.checked });
   });
@@ -386,10 +509,12 @@ export async function openSettingsPopover(
     if (document.activeElement !== speedEl) {
       speedEl.value = String(settings.speed);
       speedVal.textContent = paintSpeed(settings.speed);
+      paintRangeFill(speedEl);
     }
     if (document.activeElement !== volumeEl) {
       volumeEl.value = String(settings.volume);
       volumeVal.textContent = `${Math.round(settings.volume * 100)}%`;
+      paintRangeFill(volumeEl);
     }
     if (document.activeElement !== stepsEl) {
       stepsEl.value = String(
@@ -402,14 +527,20 @@ export async function openSettingsPopover(
         generationQualityLabel(settings.steps),
       );
       stepsVal.textContent = generationQualityLabel(settings.steps);
+      paintRangeFill(stepsEl);
     }
     karaokeEl.checked = settings.karaoke;
   });
   const previousCleanup = openCleanup;
   openCleanup = () => {
     previousCleanup?.();
+    window.removeEventListener('resize', schedulePlacement);
+    window.visualViewport?.removeEventListener('resize', schedulePlacement);
+    window.visualViewport?.removeEventListener('scroll', schedulePlacement);
+    if (placementFrame != null) cancelAnimationFrame(placementFrame);
     removeLiveSettings();
     disposeQualityBinding();
+    for (const dispose of disposeRangeFills) dispose();
   };
 
   startFromEl.disabled = !readingControlsHandler;

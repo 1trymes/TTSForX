@@ -11,6 +11,7 @@ import {
 } from '../../tts/quality';
 import { DEFAULT_VOICE, MENU_VOICES } from '../../tts/voices';
 import { bindGenerationQualityRange } from '../../ui/qualityRange';
+import { bindRangeFill, paintRangeFill } from '../../ui/rangeFill';
 
 const ICON_PLAY = `
   <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -108,10 +109,12 @@ function paintSettings(settings: Settings): void {
   if (document.activeElement !== speedEl) {
     speedEl.value = String(settings.speed);
     paintSpeed(settings.speed);
+    paintRangeFill(speedEl);
   }
   if (document.activeElement !== volumeEl) {
     volumeEl.value = String(settings.volume);
     paintVolume(settings.volume);
+    paintRangeFill(volumeEl);
   }
   if (document.activeElement !== stepsEl) {
     stepsEl.value = String(
@@ -124,6 +127,7 @@ function paintSettings(settings: Settings): void {
       generationQualityLabel(settings.steps),
     );
     stepsVal.textContent = generationQualityLabel(settings.steps);
+    paintRangeFill(stepsEl);
   }
   karaokeEl.checked = settings.karaoke;
 }
@@ -296,6 +300,7 @@ const disposeQualityBinding = bindGenerationQualityRange(
     void saveSettings({ steps });
   },
 );
+const disposeRangeFills = [speedEl, volumeEl, stepsEl].map(bindRangeFill);
 const removeSettingsListener = onSettingsChange(paintSettings);
 
 activeTabId = await findActiveTab();
@@ -333,6 +338,7 @@ window.addEventListener(
     browser.runtime.onMessage.removeListener(previewMessageListener);
     removeSettingsListener();
     disposeQualityBinding();
+    for (const dispose of disposeRangeFills) dispose();
     disposeSettings();
   },
   { once: true },

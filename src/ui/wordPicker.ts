@@ -1,7 +1,7 @@
-import { primaryReadingTextRoot } from '../x/textRoot';
+import { readingTextRoots } from '../x/textRoot';
 import {
   alignPreparedWordsToDom,
-  buildDomWords,
+  buildDomWordsForRoots,
   domWordRect,
   preparedIndexByDomIndex,
   type DomWord,
@@ -10,7 +10,7 @@ import { paintTtsxRoot } from './theme';
 
 interface WordTarget {
   article: HTMLElement;
-  root: HTMLElement;
+  roots: readonly HTMLElement[];
   words: readonly DomWord[];
   preparedByDom: ReadonlyMap<number, number>;
 }
@@ -28,14 +28,14 @@ function buildTarget(
   article: HTMLElement,
   preparedWords: readonly string[],
 ): WordTarget | null {
-  const root = primaryReadingTextRoot(article);
-  if (!root || !preparedWords.length) return null;
-  const words = buildDomWords(root);
+  const roots = readingTextRoots(article);
+  if (!roots.length || !preparedWords.length) return null;
+  const words = buildDomWordsForRoots(roots);
   const preparedByDom = preparedIndexByDomIndex(
     alignPreparedWordsToDom(preparedWords, words),
   );
   if (!preparedByDom.size) return null;
-  return { article, root, words, preparedByDom };
+  return { article, roots, words, preparedByDom };
 }
 
 function articleAtPoint(clientX: number, clientY: number): HTMLElement | null {
@@ -55,20 +55,11 @@ function wordAtPoint(
   clientX: number,
   clientY: number,
 ): WordHit | null {
-  const rootRect = target.root.getBoundingClientRect();
-  if (
-    clientX < rootRect.left ||
-    clientX > rootRect.right ||
-    clientY < rootRect.top ||
-    clientY > rootRect.bottom
-  ) {
-    return null;
-  }
-
   const caret = document.caretPositionFromPoint(clientX, clientY);
   if (!caret || !(caret.offsetNode instanceof Text)) return null;
   const node = caret.offsetNode;
-  if (!target.root.contains(node)) return null;
+  const root = target.roots.find((candidate) => candidate.contains(node));
+  if (!root) return null;
 
   for (let domIndex = 0; domIndex < target.words.length; domIndex++) {
     const word = target.words[domIndex]!;
@@ -93,7 +84,7 @@ function wordAtPoint(
     }
     return {
       article: target.article,
-      root: target.root,
+      root,
       preparedIndex,
       word,
     };
@@ -148,7 +139,9 @@ export function startWordPicker(
   if (!target) return false;
 
   const hover = createHover();
-  target.root.classList.add('ttsx-word-picker-active');
+  for (const root of target.roots) {
+    root.classList.add('ttsx-word-picker-active');
+  }
   let currentHit: WordHit | null = null;
 
   const hitFromPointer = (event: PointerEvent | MouseEvent) =>
@@ -178,7 +171,9 @@ export function startWordPicker(
     document.removeEventListener('pointermove', onPointerMove, true);
     document.removeEventListener('click', onClick, true);
     document.removeEventListener('keydown', onKeyDown, true);
-    target.root.classList.remove('ttsx-word-picker-active');
+    for (const root of target.roots) {
+      root.classList.remove('ttsx-word-picker-active');
+    }
     hover.remove();
   };
   return true;
@@ -216,7 +211,7 @@ export function startFeedWordPicker(
     const article = articleAtPoint(clientX, clientY);
     if (!article) return null;
     const cached = targets.get(article);
-    if (cached?.root.isConnected) return cached;
+    if (cached?.roots.every((root) => root.isConnected)) return cached;
     const preparedWords = preparedWordsForArticle(article);
     if (!preparedWords?.length) return null;
     const target = buildTarget(article, preparedWords);
