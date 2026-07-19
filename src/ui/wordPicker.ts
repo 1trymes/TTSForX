@@ -4,6 +4,7 @@ import {
   buildDomWordsForRoots,
   domWordRect,
   domWordRects,
+  isDomWordConnected,
   preparedIndexByDomIndex,
   type DomWord,
 } from './domWordMap';
@@ -15,6 +16,8 @@ interface WordTarget {
   preparedWords: readonly string[];
   layoutKey: string;
   boxes: RenderedWordBox<WordHit>[];
+  dirty: boolean;
+  observer: MutationObserver | null;
 }
 
 interface WordHit {
@@ -79,7 +82,11 @@ function rootForWord(
   roots: readonly HTMLElement[],
   word: DomWord,
 ): HTMLElement | null {
-  return roots.find((root) => root.contains(word.node)) ?? null;
+  return (
+    roots.find((root) =>
+      word.fragments.some((fragment) => root.contains(fragment.node)),
+    ) ?? null
+  );
 }
 
 function wordLayoutKey(roots: readonly HTMLElement[]): string {
@@ -106,23 +113,19 @@ function wordLayoutKey(roots: readonly HTMLElement[]): string {
 function rebuildWordLayout(target: WordTarget, layoutKey: string): void {
   const scrollX = window.scrollX;
   const scrollY = window.scrollY;
-  const rendered = buildDomWordsForRoots(target.roots).flatMap((word) => {
-    const root = rootForWord(target.roots, word);
-    if (!root) return [];
-    const rects = domWordRects(word);
-    return rects.length ? [{ word, root, rects }] : [];
-  });
+  const domWords = buildDomWordsForRoots(target.roots);
   const preparedByDom = preparedIndexByDomIndex(
-    alignPreparedWordsToDom(
-      target.preparedWords,
-      rendered.map(({ word }) => word),
-    ),
+    alignPreparedWordsToDom(target.preparedWords, domWords),
   );
   const boxes: RenderedWordBox<WordHit>[] = [];
-  for (let domIndex = 0; domIndex < rendered.length; domIndex++) {
+  for (let domIndex = 0; domIndex < domWords.length; domIndex++) {
     const preparedIndex = preparedByDom.get(domIndex);
     if (preparedIndex == null) continue;
-    const { word, root, rects } = rendered[domIndex]!;
+    const word = domWords[domIndex]!;
+    const root = rootForWord(target.roots, word);
+    if (!root) continue;
+    const rects = domWordRects(word);
+    if (!rects.length) continue;
     const hit: WordHit = {
       article: target.article,
       root,
@@ -141,6 +144,56 @@ function rebuildWordLayout(target: WordTarget, layoutKey: string): void {
   }
   target.layoutKey = layoutKey;
   target.boxes = boxes;
+  target.dirty = false;
+}
+
+function classWithoutPicker(value: string | null): string {
+  return (value ?? '')
+    .split(/\s+/u)
+    .filter((name) => name && name !== 'ttsx-word-picker-active')
+    .sort()
+    .join(' ');
+}
+
+function observeTarget(target: WordTarget): void {
+  const observer = new MutationObserver((records) => {
+    const meaningful = records.some((record) => {
+      if (record.type !== 'attributes' || record.attributeName !== 'class') {
+        return true;
+      }
+      const element = record.target as Element;
+      return (
+        classWithoutPicker(record.oldValue) !==
+        classWithoutPicker(element.getAttribute('class'))
+      );
+    });
+    if (meaningful) target.dirty = true;
+  });
+  for (const root of target.roots) {
+    observer.observe(root, {
+      subtree: true,
+      childList: true,
+      characterData: true,
+      attributes: true,
+      attributeOldValue: true,
+      attributeFilter: ['class', 'style', 'hidden', 'aria-hidden'],
+    });
+  }
+  target.observer = observer;
+}
+
+function disposeTarget(target: WordTarget | null): void {
+  target?.observer?.disconnect();
+  if (target) target.observer = null;
+}
+
+function targetNeedsRefresh(target: WordTarget): boolean {
+  return (
+    target.dirty ||
+    !target.article.isConnected ||
+    target.roots.some((root) => !root.isConnected) ||
+    target.boxes.some((box) => !isDomWordConnected(box.value.word))
+  );
 }
 
 function buildTarget(
@@ -155,19 +208,28 @@ function buildTarget(
     preparedWords,
     layoutKey: '',
     boxes: [],
+    dirty: false,
+    observer: null,
   };
   const layoutKey = wordLayoutKey(roots);
   rebuildWordLayout(target, layoutKey);
-  return target.boxes.length ? target : null;
+  if (!target.boxes.length) return null;
+  observeTarget(target);
+  return target;
 }
 
 function wordAtPoint(
   target: WordTarget,
   clientX: number,
   clientY: number,
+  forceLayout = false,
 ): WordHit | null {
   const layoutKey = wordLayoutKey(target.roots);
-  if (layoutKey !== target.layoutKey) {
+  if (
+    forceLayout ||
+    targetNeedsRefresh(target) ||
+    layoutKey !== target.layoutKey
+  ) {
     rebuildWordLayout(target, layoutKey);
   }
   return renderedWordAtPoint(
@@ -246,24 +308,57 @@ export function isWordPickerActive(): boolean {
  */
 export function startWordPicker(
   article: HTMLElement,
-  preparedWords: readonly string[],
+  preparedWordsForArticle:
+    | readonly string[]
+    | (() => readonly string[] | null),
   onSelect: (wordIndex: number) => void,
 ): boolean {
   stopWordPicker();
-  const target = buildTarget(article, preparedWords);
+  const resolvePreparedWords = () =>
+    typeof preparedWordsForArticle === 'function'
+      ? preparedWordsForArticle()
+      : preparedWordsForArticle;
+  let target: WordTarget | null = buildTarget(
+    article,
+    resolvePreparedWords() ?? [],
+  );
   if (!target) return false;
 
   const hover = createHover();
-  for (const root of target.roots) {
-    root.classList.add('ttsx-word-picker-active');
+  let paintedRoots: readonly HTMLElement[] = [];
+  function paintRoots(roots: readonly HTMLElement[]): void {
+    for (const root of paintedRoots) {
+      if (!roots.includes(root)) root.classList.remove('ttsx-word-picker-active');
+    }
+    for (const root of roots) root.classList.add('ttsx-word-picker-active');
+    paintedRoots = roots;
   }
-  const hitFromPoint = (clientX: number, clientY: number) =>
-    wordAtPoint(target, clientX, clientY);
+  paintRoots(target.roots);
+  function currentTarget(forceRefresh = false): WordTarget | null {
+    if (!target || forceRefresh || targetNeedsRefresh(target)) {
+      disposeTarget(target);
+      target = buildTarget(article, resolvePreparedWords() ?? []);
+      paintRoots(target?.roots ?? []);
+    }
+    return target;
+  }
+  const hitFromPoint = (
+    clientX: number,
+    clientY: number,
+    forceRefresh = false,
+  ) => {
+    const liveTarget = currentTarget(forceRefresh);
+    return liveTarget
+      ? wordAtPoint(liveTarget, clientX, clientY, forceRefresh)
+      : null;
+  };
   const hoverScheduler = createHoverScheduler(hitFromPoint, (hit) =>
     paintHover(hover, hit),
   );
   const onClick = (event: MouseEvent) => {
-    const hit = hitFromPoint(event.clientX, event.clientY);
+    // Re-snapshot text and geometry at selection time. Hover remains cheap,
+    // while a DOM rewrite can never commit a stale word index.
+    const hit = hitFromPoint(event.clientX, event.clientY, true);
     if (!hit) return;
     event.preventDefault();
     event.stopImmediatePropagation();
@@ -288,7 +383,8 @@ export function startWordPicker(
     document.removeEventListener('click', onClick, true);
     document.removeEventListener('keydown', onKeyDown, true);
     hoverScheduler.cancel();
-    for (const root of target.roots) {
+    disposeTarget(target);
+    for (const root of paintedRoots) {
       root.classList.remove('ttsx-word-picker-active');
     }
     hover.remove();
@@ -311,6 +407,7 @@ export function startFeedWordPicker(
   const hover = createHover();
   hover.dataset.feedPicker = 'true';
   const targets = new WeakMap<HTMLElement, WordTarget>();
+  const ownedTargets = new Set<WordTarget>();
   let activeRoot: HTMLElement | null = null;
 
   function paintActiveRoot(root: HTMLElement | null): void {
@@ -323,22 +420,35 @@ export function startFeedWordPicker(
   function targetAtPoint(
     clientX: number,
     clientY: number,
+    forceRefresh = false,
   ): WordTarget | null {
     const article = articleAtPoint(clientX, clientY);
     if (!article) return null;
     const cached = targets.get(article);
-    if (cached?.roots.every((root) => root.isConnected)) return cached;
+    if (cached && !forceRefresh && !targetNeedsRefresh(cached)) return cached;
+    if (cached) {
+      disposeTarget(cached);
+      ownedTargets.delete(cached);
+      targets.delete(article);
+    }
     const preparedWords = preparedWordsForArticle(article);
     if (!preparedWords?.length) return null;
     const target = buildTarget(article, preparedWords);
-    if (target) targets.set(article, target);
+    if (target) {
+      targets.set(article, target);
+      ownedTargets.add(target);
+    }
     return target;
   }
 
-  const hitFromPoint = (clientX: number, clientY: number) => {
-    const target = targetAtPoint(clientX, clientY);
+  const hitFromPoint = (
+    clientX: number,
+    clientY: number,
+    forceRefresh = false,
+  ) => {
+    const target = targetAtPoint(clientX, clientY, forceRefresh);
     return target
-      ? wordAtPoint(target, clientX, clientY)
+      ? wordAtPoint(target, clientX, clientY, forceRefresh)
       : null;
   };
   const hoverScheduler = createHoverScheduler(hitFromPoint, (hit) => {
@@ -346,11 +456,16 @@ export function startFeedWordPicker(
     paintHover(hover, hit);
   });
   const onClick = (event: MouseEvent) => {
-    const hit = hitFromPoint(event.clientX, event.clientY);
+    const hit = hitFromPoint(event.clientX, event.clientY, true);
     if (!hit) return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    targets.delete(hit.article);
+    const selectedTarget = targets.get(hit.article);
+    if (selectedTarget) {
+      disposeTarget(selectedTarget);
+      ownedTargets.delete(selectedTarget);
+      targets.delete(hit.article);
+    }
     paintActiveRoot(null);
     paintHover(hover, null);
     onSelect(hit.article, hit.preparedIndex);
@@ -373,6 +488,8 @@ export function startFeedWordPicker(
     document.removeEventListener('click', onClick, true);
     document.removeEventListener('keydown', onKeyDown, true);
     hoverScheduler.cancel();
+    for (const target of ownedTargets) disposeTarget(target);
+    ownedTargets.clear();
     paintActiveRoot(null);
     hover.remove();
   };

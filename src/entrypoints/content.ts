@@ -501,11 +501,9 @@ export default defineContentScript({
         fallbackButton ??
         null;
       if (!liveButton) return null;
-      return (
-        currentReading?.article === article
-          ? currentReading
-          : makeReadingRequest(extractTweetText(article), liveButton, article)
-      );
+      // Always snapshot the current rendered surface. Translators, grammar
+      // tools, and X itself can replace text nodes without replacing article.
+      return makeReadingRequest(extractTweetText(article), liveButton, article);
     }
 
     function playFromPickedWord(
@@ -553,9 +551,19 @@ export default defineContentScript({
     ): Promise<boolean> {
       const pickerRequest = readingRequestForPicker(article, fallbackButton);
       if (!pickerRequest) return false;
-      return startWordPicker(article, pickerRequest.words, (wordIndex) => {
-        playFromPickedWord(article, pickerRequest, wordIndex);
-      });
+      return startWordPicker(
+        article,
+        () => readingRequestForPicker(article, fallbackButton)?.words ?? null,
+        (wordIndex) => {
+          const currentRequest = readingRequestForPicker(
+            article,
+            fallbackButton,
+          );
+          if (currentRequest) {
+            playFromPickedWord(article, currentRequest, wordIndex);
+          }
+        },
+      );
     }
 
     function startPersistentFeedPicker(): void {

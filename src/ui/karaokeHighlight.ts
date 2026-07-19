@@ -8,6 +8,7 @@ import {
   alignPreparedWordsToDom,
   buildDomWordsForRoots,
   domWordRect,
+  isDomWordConnected,
   type DomWord,
 } from './domWordMap';
 import { paintTtsxRoot } from './theme';
@@ -23,6 +24,8 @@ let alignMap: number[] = [];
 let activeDomIndex = -1;
 let hostPrevPosition = '';
 let revealFrame: number | null = null;
+let textObserver: MutationObserver | null = null;
+let domDirty = false;
 
 export type KaraokePlacementMotion = 'none' | 'snap' | 'morph';
 
@@ -100,6 +103,22 @@ function hidePill(): void {
   pill?.classList.remove('ttsx-karaoke-pill--on');
 }
 
+function observeTextRoots(roots: readonly HTMLElement[]): void {
+  textObserver?.disconnect();
+  textObserver = new MutationObserver(() => {
+    domDirty = true;
+  });
+  for (const root of roots) {
+    textObserver.observe(root, {
+      subtree: true,
+      childList: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: ['class', 'style', 'hidden', 'aria-hidden'],
+    });
+  }
+}
+
 function placePillOver(word: DomWord, morph: boolean): void {
   if (!articleEl?.isConnected) {
     hidePill();
@@ -151,9 +170,11 @@ function placePillOver(word: DomWord, morph: boolean): void {
 function rebuildDomIfNeeded(): boolean {
   if (!articleEl?.isConnected) return false;
   if (
+    !domDirty &&
     textRoots.length &&
     textRoots.every((root) => root.isConnected) &&
-    domWords.length
+    domWords.length &&
+    domWords.every(isDomWordConnected)
   ) {
     return true;
   }
@@ -163,6 +184,8 @@ function rebuildDomIfNeeded(): boolean {
   domWords = buildDomWordsForRoots(roots);
   alignMap = alignPreparedWordsToDom(preparedWords, domWords);
   activeDomIndex = -1;
+  domDirty = false;
+  observeTextRoots(roots);
   return domWords.length > 0;
 }
 
@@ -181,6 +204,8 @@ export function startKaraoke(
   if (!domWords.length) return;
   alignMap = alignPreparedWordsToDom(preparedWords, domWords);
   activeDomIndex = -1;
+  domDirty = false;
+  observeTextRoots(roots);
 }
 
 export function updateKaraoke(preparedWordIndex: number | null): void {
@@ -203,6 +228,9 @@ export function updateKaraoke(preparedWordIndex: number | null): void {
 
 export function stopKaraoke(): void {
   teardownHost();
+  textObserver?.disconnect();
+  textObserver = null;
+  domDirty = false;
   articleEl = null;
   textRoots = [];
   preparedWords = [];

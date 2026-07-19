@@ -61,8 +61,11 @@ import { rangeFillPercent } from '../src/ui/rangeFill';
 import { selectedVoiceScrollTop } from '../src/ui/voiceMenu';
 import {
   alignPreparedWordsToDom,
+  isDomWordConnected,
+  mapRenderedWordsToDom,
   preparedIndexByDomIndex,
   type DomWord,
+  type DomWordFragment,
 } from '../src/ui/domWordMap';
 import { renderedWordAtPoint } from '../src/ui/wordPicker';
 import {
@@ -81,6 +84,26 @@ afterEach(() => {
   cacheClear();
   vi.unstubAllGlobals();
 });
+
+function domFragment(
+  text: string,
+  joinsPrevious = false,
+  rendered = true,
+): DomWordFragment {
+  const node = { data: text, isConnected: true } as Text;
+  return {
+    node,
+    start: 0,
+    end: text.length,
+    text,
+    joinsPrevious,
+    rendered,
+  };
+}
+
+function domWord(text: string): DomWord {
+  return { text, fragments: [domFragment(text)] };
+}
 
 describe('text preparation and chunking', () => {
   it('normalizes social text without leaving URL or emoji noise', () => {
@@ -274,11 +297,7 @@ describe('playback controls and acoustic karaoke timing', () => {
   });
 
   it('keeps contractions aligned at paragraph starts', () => {
-    const visible = ['humanity.', 'I’ve', 'spent', 'my'].map((text) => ({
-      node: { data: text } as Text,
-      start: 0,
-      end: text.length,
-    })) satisfies DomWord[];
+    const visible = ['humanity.', 'I’ve', 'spent', 'my'].map(domWord);
     const preparedToDom = alignPreparedWordsToDom(
       ['humanity.', "I've", 'spent', 'my'],
       visible,
@@ -499,11 +518,7 @@ describe('rendered article text extraction', () => {
   });
 
   it('maps a visible paragraph leader only when extraction preserves it', () => {
-    const visible = ['humanity.', 'I’ve', 'spent'].map((text) => ({
-      node: { data: text } as Text,
-      start: 0,
-      end: text.length,
-    })) satisfies DomWord[];
+    const visible = ['humanity.', 'I’ve', 'spent'].map(domWord);
     const withLeader = preparedIndexByDomIndex(
       alignPreparedWordsToDom(['humanity.', "I've", 'spent'], visible),
     );
@@ -532,6 +547,71 @@ describe('rendered article text extraction', () => {
         textContent: 'Hidden original text',
       }),
     ).toBe('');
+  });
+
+  it('keeps one rendered word when another extension splits every character', () => {
+    const mapped = mapRenderedWordsToDom(
+      ["I've", 'spent'],
+      [
+        domFragment('I'),
+        domFragment('’', true),
+        domFragment('v', true),
+        domFragment('e', true),
+        domFragment('spent'),
+      ],
+    );
+
+    expect(mapped.map((word) => word.text)).toEqual(["I've", 'spent']);
+    expect(mapped[0]!.fragments).toHaveLength(4);
+    expect(
+      preparedIndexByDomIndex(
+        alignPreparedWordsToDom(["I've", 'spent'], mapped),
+      ).get(0),
+    ).toBe(0);
+  });
+
+  it('ignores hidden source copies without knowing which extension made them', () => {
+    const hiddenOriginal = [
+      domFragment("I've", false, false),
+      domFragment('spent', false, false),
+    ];
+    const visibleRewrite = [
+      domFragment('I'),
+      domFragment('’ve', true),
+      domFragment('spent'),
+    ];
+    const mapped = mapRenderedWordsToDom(
+      ["I've", 'spent'],
+      [...hiddenOriginal, ...visibleRewrite],
+    );
+
+    expect(mapped).toHaveLength(2);
+    expect(mapped[0]!.fragments).toEqual(visibleRewrite.slice(0, 2));
+    expect(mapped[1]!.fragments).toEqual(visibleRewrite.slice(2));
+  });
+
+  it('invalidates words when an external rewrite replaces their text nodes', () => {
+    const original = mapRenderedWordsToDom(
+      ["I've", 'spent'],
+      [domFragment("I've"), domFragment('spent')],
+    );
+    for (const word of original) {
+      for (const fragment of word.fragments) {
+        Object.defineProperty(fragment.node, 'isConnected', { value: false });
+      }
+    }
+    const replacement = mapRenderedWordsToDom(
+      ["I've", 'spent'],
+      [
+        domFragment('I'),
+        domFragment('’ve', true),
+        domFragment('spent'),
+      ],
+    );
+
+    expect(original.every(isDomWordConnected)).toBe(false);
+    expect(replacement.every(isDomWordConnected)).toBe(true);
+    expect(replacement[0]!.fragments).toHaveLength(2);
   });
 });
 

@@ -200,7 +200,7 @@ export async function expandTweetText(article: HTMLElement): Promise<void> {
   if (!btn || !article.isConnected) return;
 
   const before = primaryTweetTextNodes(article).reduce(
-    (length, node) => length + (node.textContent?.length ?? 0),
+    (length, node) => length + readPrimaryTweetText(node).length,
     0,
   );
 
@@ -215,7 +215,7 @@ export async function expandTweetText(article: HTMLElement): Promise<void> {
     if (!article.isConnected) return;
     const still = showMoreControl(article);
     const after = primaryTweetTextNodes(article).reduce(
-      (length, node) => length + (node.textContent?.length ?? 0),
+      (length, node) => length + readPrimaryTweetText(node).length,
       0,
     );
     if (!still || after > before + 8) {
@@ -240,19 +240,9 @@ function stripShowMoreLabel(article: HTMLElement, text: string): string {
  */
 export function extractTweetText(article: HTMLElement): string {
   const roots = primaryTweetTextNodes(article);
-  const sections: string[] = [];
-
-  // Hidden continuation spans (when X keeps them in the primary node).
-  for (const root of roots) {
-    let section = readPrimaryTweetText(root);
-    for (const h of root.querySelectorAll<HTMLElement>(
-      'span[aria-hidden="true"]',
-    )) {
-      const t = (h.innerText ?? h.textContent ?? '').trim();
-      if (t && !section.includes(t)) section = `${section} ${t}`.trim();
-    }
-    if (section) sections.push(section);
-  }
+  const sections = roots
+    .map((root) => readPrimaryTweetText(root))
+    .filter((section) => section.length > 0);
 
   let text = sections.join('\n');
   text = stripShowMoreLabel(article, text);
