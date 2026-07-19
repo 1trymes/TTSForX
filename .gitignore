@@ -1,0 +1,18 @@
+# Build output
+.wxt/
+.output/
+.output-firefox/
+coverage/
+
+# Dependencies
+node_modules/
+
+# Local environment files
+.env
+.env.*
+!.env.example
+
+# Operating system and logs
+.DS_Store
+Thumbs.db
+*.log

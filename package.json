@@ -1,0 +1,51 @@
+{
+  "name": "tts-for-x",
+  "version": "0.2.0",
+  "description": "Read posts on X aloud with local Supertonic 3 speech and synchronized captions.",
+  "keywords": [
+    "chrome-extension",
+    "text-to-speech",
+    "tts",
+    "webgpu",
+    "supertonic",
+    "x-com",
+    "twitter",
+    "accessibility"
+  ],
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wxt",
+    "dev:firefox": "wxt -b firefox",
+    "build": "wxt build && node scripts/verify-build.mjs chrome",
+    "build:firefox": "wxt build -b firefox && node scripts/verify-build.mjs firefox",
+    "verify:build": "node scripts/verify-build.mjs chrome",
+    "zip": "wxt zip",
+    "zip:firefox": "wxt zip -b firefox",
+    "test": "vitest run",
+    "typecheck": "wxt prepare && tsc --noEmit",
+    "postinstall": "wxt prepare"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "vitest": "^4.1.10",
+    "wxt": "^0.20.4"
+  },
+  "overrides": {
+    "esbuild": "0.28.1",
+    "web-ext-run": {
+      "firefox-profile": {
+        "adm-zip": "0.6.0"
+      },
+      "fx-runner": "1.5.0",
+      "node-notifier": {
+        "uuid": "11.1.1"
+      },
+      "tmp": "0.2.7"
+    }
+  },
+  "dependencies": {
+    "@huggingface/transformers": "3.8.1",
+    "onnxruntime-web": "1.27.0"
+  }
+}

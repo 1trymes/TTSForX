@@ -1,0 +1,626 @@
+/*
+ * TTSForX — tokens sampled from live x.com Dropdown (More menu):
+ *   surface dark: rgb(20, 20, 20)
+ *   radius: 12px
+ *   shadow: rgba(0,0,0,0.5) 0 4px 12px, rgba(0,0,0,0.35) 0 0 2px
+ *   item padding: 12px 16px
+ *   item text: 700 15px/20px TwitterChirp, rgb(231,233,234)
+ */
+
+/*
+ * Theme tokens scoped to our roots only — never on <html>.
+ * Older builds used html.ttsx-dark; that polluted the page.
+ */
+[data-ttsx-root][data-ttsx-theme='dark'] {
+  --ttsx-dim: rgb(113, 118, 123);
+  --ttsx-fg: rgb(231, 233, 234);
+  --ttsx-muted: rgb(113, 118, 123);
+  --ttsx-surface: rgb(20, 20, 20);
+  --ttsx-surface-hover: rgba(255, 255, 255, 0.03);
+  --ttsx-line: rgb(47, 51, 54);
+  --ttsx-accent: rgb(29, 155, 240);
+  --ttsx-accent-bg: rgba(29, 155, 240, 0.1);
+  --ttsx-accent-bg-strong: rgba(29, 155, 240, 0.2);
+  --ttsx-shadow: rgba(0, 0, 0, 0.5) 0px 4px 12px 0px,
+    rgba(0, 0, 0, 0.35) 0px 0px 2px 0px;
+}
+[data-ttsx-root][data-ttsx-theme='light'] {
+  --ttsx-dim: rgb(83, 100, 113);
+  --ttsx-fg: rgb(15, 20, 25);
+  --ttsx-muted: rgb(83, 100, 113);
+  --ttsx-surface: rgb(255, 255, 255);
+  --ttsx-surface-hover: rgba(0, 0, 0, 0.03);
+  --ttsx-line: rgb(239, 243, 244);
+  --ttsx-accent: rgb(29, 155, 240);
+  --ttsx-accent-bg: rgba(29, 155, 240, 0.1);
+  --ttsx-accent-bg-strong: rgba(29, 155, 240, 0.2);
+  --ttsx-shadow: rgba(101, 119, 134, 0.2) 0px 0px 15px,
+    rgba(101, 119, 134, 0.15) 0px 0px 3px 1px;
+}
+[data-ttsx-root],
+[data-ttsx-root] * {
+  box-sizing: border-box;
+}
+
+/*
+ * Flex / margins are copied at mount from the bookmark cell so we match
+ * both timeline (flex:0 trail) and status pages (flex:1 like reply/like).
+ */
+.ttsx-action {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-width: 0;
+}
+
+.ttsx-speaker-btn {
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ttsx-dim);
+  transition: color 0.2s ease;
+  outline: none;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.ttsx-hit {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Match X action hit target (~34.75px) with ~1.25em icon inside. */
+  width: 34.75px;
+  height: 34.75px;
+  padding: 0;
+  border-radius: 9999px;
+  transition: background-color 0.2s ease, transform 0.15s ease;
+}
+
+.ttsx-speaker-btn:hover {
+  color: var(--ttsx-accent);
+}
+.ttsx-speaker-btn:hover .ttsx-hit {
+  background-color: var(--ttsx-accent-bg);
+}
+.ttsx-speaker-btn:active .ttsx-hit,
+.ttsx-speaker-btn.ttsx-holding .ttsx-hit {
+  background-color: var(--ttsx-accent-bg-strong);
+  transform: scale(1.08);
+}
+.ttsx-speaker-btn.ttsx-holding {
+  color: var(--ttsx-accent);
+}
+.ttsx-speaker-btn:focus-visible .ttsx-hit {
+  box-shadow: 0 0 0 2px var(--ttsx-accent);
+}
+
+.ttsx-icon {
+  width: var(--ttsx-icon-size, 22.5px);
+  height: var(--ttsx-icon-size, 22.5px);
+  display: block;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.ttsx-speaker-btn[data-ttsx-state='playing'] .ttsx-icon,
+.ttsx-speaker-btn[data-ttsx-state='paused'] .ttsx-icon {
+  fill: currentColor;
+  stroke: none;
+}
+.ttsx-speaker-btn[data-ttsx-state='playing'],
+.ttsx-speaker-btn[data-ttsx-state='paused'] {
+  color: var(--ttsx-accent);
+}
+
+.ttsx-spinner,
+.ttsx-progress {
+  transform: rotate(-90deg);
+}
+.ttsx-spinner-track {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  opacity: 0.25;
+}
+.ttsx-spinner-head {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  transition: stroke-dasharray 0.2s ease;
+}
+.ttsx-speaker-btn[data-ttsx-state='loading'] {
+  color: var(--ttsx-accent);
+}
+.ttsx-speaker-btn[data-ttsx-state='loading'] .ttsx-icon {
+  fill: none;
+  stroke: currentColor;
+}
+.ttsx-loading-spinner {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.25;
+  stroke-linecap: round;
+  stroke-dasharray: 14 38;
+  transform-origin: center;
+  animation: ttsx-loading-spin 0.75s linear infinite;
+}
+
+/* Play/pause glyph centered inside the progress ring.
+ * Must stay smaller than the ring’s inner diameter — header `.ttsx-icon`
+ * sizing must not win here or glyphs kiss the circle. */
+.ttsx-progress-icon {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.ttsx-progress-icon .ttsx-icon {
+  width: 9px;
+  height: 9px;
+}
+.ttsx-action--header .ttsx-progress-icon .ttsx-icon {
+  width: 7.5px;
+  height: 7.5px;
+}
+.ttsx-speaker-btn[data-ttsx-state='playing'] .ttsx-progress,
+.ttsx-speaker-btn[data-ttsx-state='paused'] .ttsx-progress {
+  fill: none;
+  stroke: currentColor;
+}
+.ttsx-speaker-btn[data-ttsx-state='playing'] .ttsx-progress-icon .ttsx-icon,
+.ttsx-speaker-btn[data-ttsx-state='paused'] .ttsx-progress-icon .ttsx-icon {
+  fill: currentColor;
+  stroke: none;
+}
+
+/* First-use hold tip — fixed, does not touch article layout */
+.ttsx-hold-hint {
+  position: fixed;
+  z-index: 10001;
+  transform: translate(-50%, -100%) translateY(-4px);
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--ttsx-surface);
+  color: var(--ttsx-fg);
+  box-shadow: var(--ttsx-shadow);
+  font-family:
+    TwitterChirp, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    Helvetica, Arial, sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 16px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+.ttsx-hold-hint--in {
+  opacity: 1;
+  transform: translate(-50%, -100%) translateY(-8px);
+}
+.ttsx-hold-hint--out {
+  opacity: 0;
+}
+
+/* Header slot next to Grok / ⋯ — same footprint as those icons (~19px),
+ * not the larger timeline action-bar hit target. */
+.ttsx-action--header {
+  flex: 0 0 auto !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 !important;
+  min-width: 0 !important;
+}
+.ttsx-action--header .ttsx-hit {
+  width: 18.75px;
+  height: 18.75px;
+}
+.ttsx-action--header .ttsx-icon {
+  width: var(--ttsx-icon-size, 18.75px);
+  height: var(--ttsx-icon-size, 18.75px);
+}
+
+/* Popover/hint host — relative only on a zero-impact wrapper if needed.
+ * Never force position on the whole article (can disturb X layout). */
+
+/*
+ * Settings sheet — match captured X Dropdown panel:
+ * width ~297, radius 12, bg rgb(20,20,20), dual drop shadow, no border.
+ * Fixed to viewport (anchored to the button) — never mutates article layout.
+ */
+.ttsx-popover {
+  position: fixed;
+  /* X's sticky For you / Following navigation uses the next layer above. */
+  z-index: 2;
+  box-sizing: border-box;
+  width: min(297px, calc(100vw - 24px));
+  padding: 0;
+  border-radius: 12px;
+  background-color: var(--ttsx-surface);
+  color: var(--ttsx-fg);
+  box-shadow: var(--ttsx-shadow);
+  border: 0;
+  font-family:
+    TwitterChirp, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    Helvetica, Arial, sans-serif;
+  font-size: 15px;
+  line-height: 20px;
+  animation: ttsx-pop 0.12s ease-out;
+  max-height: calc(100vh - 16px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+@keyframes ttsx-pop {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.ttsx-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 4px 16px 12px;
+}
+.ttsx-field:first-child {
+  padding-top: 8px;
+}
+
+.ttsx-field-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 16px;
+  color: var(--ttsx-muted);
+}
+
+/* Shared grid so Speed/Volume values share one vertical axis on the right */
+.ttsx-slider-head {
+  display: grid;
+  grid-template-columns: 1fr 5.5rem;
+  align-items: baseline;
+  column-gap: 8px;
+  width: 100%;
+}
+.ttsx-slider-head .ttsx-field-label {
+  margin: 0;
+}
+.ttsx-slider-head .ttsx-val {
+  margin: 0;
+  font-style: normal;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 16px;
+  color: var(--ttsx-muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+.ttsx-voice-btn {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  margin: 0;
+  padding: 12px 16px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ttsx-fg);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 20px;
+  cursor: pointer;
+  text-align: left;
+}
+.ttsx-field--voice {
+  padding: 4px 0 0;
+  gap: 0;
+}
+.ttsx-voice-cat {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ttsx-voice-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  color: var(--ttsx-muted);
+  font-weight: 400;
+}
+.ttsx-voice-btn:hover {
+  background: var(--ttsx-surface-hover);
+}
+.ttsx-chevron {
+  width: 12px;
+  height: 8px;
+  flex: 0 0 auto;
+  color: var(--ttsx-muted);
+}
+.ttsx-popover.ttsx-voice-open .ttsx-chevron {
+  transform: rotate(180deg);
+}
+
+.ttsx-voice-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 220px;
+  overflow-y: auto;
+  margin: 0;
+  border: 0;
+  border-top: 1px solid var(--ttsx-line);
+  border-radius: 0;
+  background: transparent;
+}
+.ttsx-voice-list[hidden] {
+  display: none !important;
+}
+.ttsx-voice-group {
+  padding: 12px 16px 4px;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 16px;
+  color: var(--ttsx-muted);
+}
+.ttsx-voice-opt {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  margin: 0;
+  padding: 0 6px 0 0;
+  border: 0;
+  background: transparent;
+  color: var(--ttsx-fg);
+}
+.ttsx-voice-select {
+  appearance: none;
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  padding: 12px 16px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 20px;
+  text-align: left;
+  cursor: pointer;
+}
+.ttsx-voice-opt:hover,
+.ttsx-voice-opt:focus-within {
+  background: var(--ttsx-surface-hover);
+}
+.ttsx-voice-opt[aria-selected='true'] {
+  color: var(--ttsx-accent);
+}
+.ttsx-voice-preview {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ttsx-muted);
+  cursor: pointer;
+}
+.ttsx-voice-preview:hover,
+.ttsx-voice-preview:focus-visible,
+.ttsx-voice-preview[data-preview-state='loading'],
+.ttsx-voice-preview[data-preview-state='playing'] {
+  color: var(--ttsx-accent);
+  background: var(--ttsx-accent-bg);
+  outline: none;
+}
+.ttsx-voice-preview svg {
+  display: block;
+  width: 15px;
+  height: 15px;
+  fill: currentColor;
+  stroke: none;
+}
+.ttsx-voice-preview[data-preview-state='loading'] svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.25;
+  stroke-linecap: round;
+  stroke-dasharray: 14 38;
+  animation: ttsx-loading-spin 0.75s linear infinite;
+}
+@keyframes ttsx-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.ttsx-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  margin: 4px 0 0;
+  border-radius: 9999px;
+  background: var(--ttsx-line);
+  outline: none;
+  accent-color: var(--ttsx-accent);
+}
+.ttsx-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--ttsx-accent);
+  border: 0;
+  cursor: pointer;
+  box-shadow: none;
+}
+.ttsx-range::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--ttsx-accent);
+  border: 0;
+  cursor: pointer;
+}
+.ttsx-range::-moz-range-track {
+  height: 4px;
+  border-radius: 9999px;
+  background: var(--ttsx-line);
+}
+
+.ttsx-toggle-field {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 8px;
+  padding-bottom: 14px;
+  border-top: 1px solid var(--ttsx-line);
+}
+
+.ttsx-check {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--ttsx-accent);
+}
+
+.ttsx-start-field {
+  gap: 0;
+  padding: 0;
+  border-top: 1px solid var(--ttsx-line);
+}
+.ttsx-start-btn {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  margin: 0;
+  padding: 12px 16px;
+  border: 0;
+  background: transparent;
+  color: var(--ttsx-fg);
+  font: inherit;
+  line-height: 20px;
+  text-align: left;
+  cursor: pointer;
+}
+.ttsx-start-btn:hover,
+.ttsx-start-btn:focus-visible {
+  background: var(--ttsx-surface-hover);
+  outline: none;
+}
+.ttsx-start-btn:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+.ttsx-start-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ttsx-muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+.ttsx-start-action svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+
+.ttsx-word-picker-active,
+.ttsx-word-picker-active * {
+  cursor: text !important;
+}
+.ttsx-word-picker-hover {
+  position: fixed;
+  z-index: 2;
+  display: block;
+  pointer-events: none;
+  border: 1px solid var(--ttsx-accent);
+  border-radius: 4px;
+  background: var(--ttsx-accent-bg-strong);
+  box-shadow: 0 0 0 1px var(--ttsx-accent-bg);
+}
+.ttsx-word-picker-hover[hidden] {
+  display: none;
+}
+
+/* Original in-post karaoke: the pill scrolls with its X article. */
+.ttsx-karaoke-host {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  overflow: visible;
+  pointer-events: none !important;
+  z-index: 1;
+}
+
+.ttsx-karaoke-pill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none !important;
+  border-radius: 6px;
+  background: var(--ttsx-accent-bg-strong);
+  box-shadow: 0 0 0 1.5px var(--ttsx-accent);
+  opacity: 0;
+  transform-origin: top left;
+  transition:
+    transform 0.16s ease,
+    width 0.16s ease,
+    height 0.16s ease,
+    opacity 0.12s ease;
+  will-change: transform, width, height;
+}
+
+.ttsx-karaoke-pill--snap {
+  transition: none !important;
+}
+
+.ttsx-karaoke-pill--on {
+  opacity: 1;
+}

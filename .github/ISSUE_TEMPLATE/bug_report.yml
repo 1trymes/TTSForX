@@ -1,0 +1,39 @@
+name: Bug report
+description: Tell us what went wrong.
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: What did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and version
+      placeholder: Chrome 140
+    validations:
+      required: true
+  - type: input
+    id: gpu
+    attributes:
+      label: GPU
+      placeholder: NVIDIA GeForce RTX 4070
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Include the type of X page and the actions that caused the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: errors
+    attributes:
+      label: Extension errors
+      description: Open TTSForX in chrome://extensions and paste anything listed under Errors.
+      render: shell
