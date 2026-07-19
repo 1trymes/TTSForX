@@ -15,6 +15,49 @@ import { paintTtsxRoot, syncActionIconAppearance } from './theme';
 
 const HOLD_MS = 420;
 
+export interface SpeakerPressGesture {
+  held: boolean;
+  played: boolean;
+  suppressClick: boolean;
+}
+
+export function createSpeakerPressGesture(): SpeakerPressGesture {
+  return { held: false, played: false, suppressClick: false };
+}
+
+export function beginSpeakerPressGesture(state: SpeakerPressGesture): void {
+  state.held = false;
+  state.played = false;
+  state.suppressClick = false;
+}
+
+export function markSpeakerHold(state: SpeakerPressGesture): void {
+  state.held = true;
+  state.played = true;
+  state.suppressClick = true;
+}
+
+export function finishSpeakerPointer(state: SpeakerPressGesture): boolean {
+  const shouldPlay = !state.held && !state.played;
+  state.held = false;
+  if (shouldPlay) {
+    state.played = true;
+    state.suppressClick = true;
+  }
+  return shouldPlay;
+}
+
+export function consumeSpeakerClick(state: SpeakerPressGesture): boolean {
+  if (state.suppressClick) {
+    state.suppressClick = false;
+    state.played = false;
+    return false;
+  }
+  if (state.held || state.played) return false;
+  state.played = true;
+  return true;
+}
+
 const ICON_SPEAKER = `
 <svg viewBox="0 0 24 24" aria-hidden="true" class="ttsx-icon">
   <path d="M11 5 6 9H2v6h4l5 4V5z"/>
@@ -299,8 +342,7 @@ function wirePress(
   wiredButtons.add(button);
 
   let holdTimer: ReturnType<typeof setTimeout> | null = null;
-  let held = false;
-  let playedThisGesture = false;
+  const gesture = createSpeakerPressGesture();
   let startX = 0;
   let startY = 0;
 
@@ -315,13 +357,12 @@ function wirePress(
     if (e.button != null && e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
-    held = false;
-    playedThisGesture = false;
+    beginSpeakerPressGesture(gesture);
     startX = e.clientX;
     startY = e.clientY;
     button.setPointerCapture?.(e.pointerId);
     holdTimer = setTimeout(() => {
-      held = true;
+      markSpeakerHold(gesture);
       button.classList.add('ttsx-holding');
       void openSettingsPopover(button);
     }, HOLD_MS);
@@ -338,22 +379,19 @@ function wirePress(
     e.preventDefault();
     e.stopPropagation();
     button.classList.remove('ttsx-holding');
-    const wasHold = held;
     clearHold();
-    held = false;
     try {
       button.releasePointerCapture?.(e.pointerId);
     } catch {
       /* ignore */
     }
-    if (wasHold || playedThisGesture) return;
-    playedThisGesture = true;
+    if (!finishSpeakerPointer(gesture)) return;
     firePlay(button, article);
   };
 
   const onCancel = () => {
     clearHold();
-    held = false;
+    gesture.held = false;
     button.classList.remove('ttsx-holding');
   };
 
@@ -368,8 +406,7 @@ function wirePress(
       e.preventDefault();
       e.stopPropagation();
       e.stopImmediatePropagation();
-      if (held || playedThisGesture) return;
-      playedThisGesture = true;
+      if (!consumeSpeakerClick(gesture)) return;
       clearHold();
       firePlay(button, article);
     },

@@ -48,6 +48,13 @@ import {
 } from '../src/tts/voices';
 import { applyMediaPlaybackRate } from '../src/tts/wav';
 import {
+  beginSpeakerPressGesture,
+  consumeSpeakerClick,
+  createSpeakerPressGesture,
+  finishSpeakerPointer,
+  markSpeakerHold,
+} from '../src/ui/speakerButton';
+import {
   actionIconSize,
   resolveActionIconColor,
   syncActionIconAppearance,
@@ -390,5 +397,24 @@ describe('X action icon matching', () => {
       'rgb(113, 118, 123)',
     );
     expect(setProperty).toHaveBeenCalledWith('--ttsx-icon-size', '18.75px');
+  });
+});
+
+describe('speaker press gestures', () => {
+  it('opens settings on hold without playing on release or click', () => {
+    const gesture = createSpeakerPressGesture();
+    beginSpeakerPressGesture(gesture);
+    markSpeakerHold(gesture);
+
+    expect(finishSpeakerPointer(gesture)).toBe(false);
+    expect(consumeSpeakerClick(gesture)).toBe(false);
+  });
+
+  it('plays once for a normal press and consumes its follow-up click', () => {
+    const gesture = createSpeakerPressGesture();
+    beginSpeakerPressGesture(gesture);
+
+    expect(finishSpeakerPointer(gesture)).toBe(true);
+    expect(consumeSpeakerClick(gesture)).toBe(false);
   });
 });
