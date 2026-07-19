@@ -63,7 +63,7 @@ import {
   preparedIndexByDomIndex,
   type DomWord,
 } from '../src/ui/domWordMap';
-import { wordRectContainsPoint } from '../src/ui/wordPicker';
+import { renderedWordAtPoint } from '../src/ui/wordPicker';
 import {
   actionIconSize,
   resolveActionIconColor,
@@ -290,12 +290,32 @@ describe('playback controls and acoustic karaoke timing', () => {
   });
 
   it('accepts the first glyph edge only for the word actually under it', () => {
-    const rect = { left: 100, right: 130, top: 50, bottom: 70 };
-    expect(wordRectContainsPoint(rect, 100, 60)).toBe(true);
-    expect(wordRectContainsPoint(rect, 98, 60)).toBe(true);
-    expect(wordRectContainsPoint(rect, 97, 60)).toBe(false);
-    expect(wordRectContainsPoint(rect, 132, 60)).toBe(true);
-    expect(wordRectContainsPoint(rect, 133, 60)).toBe(false);
+    const boxes = [
+      { value: 'word', left: 100, right: 130, top: 50, bottom: 70 },
+    ];
+    expect(renderedWordAtPoint(boxes, 100, 60)).toBe('word');
+    expect(renderedWordAtPoint(boxes, 98, 60)).toBe('word');
+    expect(renderedWordAtPoint(boxes, 97, 60)).toBeNull();
+    expect(renderedWordAtPoint(boxes, 132, 60)).toBe('word');
+    expect(renderedWordAtPoint(boxes, 133, 60)).toBeNull();
+  });
+
+  it('selects a paragraph-first word from rendered geometry alone', () => {
+    const boxes = [
+      {
+        value: 'previous paragraph',
+        left: 36,
+        right: 280,
+        top: 20,
+        bottom: 65,
+      },
+      { value: "I've", left: 36, right: 100, top: 150, bottom: 195 },
+      { value: 'spent', left: 108, right: 220, top: 150, bottom: 195 },
+    ];
+
+    expect(renderedWordAtPoint(boxes, 36, 172)).toBe("I've");
+    expect(renderedWordAtPoint(boxes, 68, 172)).toBe("I've");
+    expect(renderedWordAtPoint(boxes, 110, 172)).toBe('spent');
   });
 
   it('rejects incomplete acoustic alignment instead of using a fallback', () => {

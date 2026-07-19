@@ -94,14 +94,7 @@ export function preparedIndexByDomIndex(
 }
 
 export function domWordRect(word: DomWord): DOMRect | null {
-  const range = document.createRange();
-  try {
-    range.setStart(word.node, word.start);
-    range.setEnd(word.node, word.end);
-  } catch {
-    return null;
-  }
-  const rects = range.getClientRects();
+  const rects = domWordRects(word);
   if (!rects.length) return null;
 
   let left = rects[0]!.left;
@@ -116,4 +109,19 @@ export function domWordRect(word: DomWord): DOMRect | null {
     bottom = Math.max(bottom, rect.bottom);
   }
   return new DOMRect(left, top, right - left, bottom - top);
+}
+
+/** Exact rendered fragments for pointer hit testing. */
+export function domWordRects(word: DomWord): DOMRect[] {
+  const range = document.createRange();
+  try {
+    range.setStart(word.node, word.start);
+    range.setEnd(word.node, word.end);
+  } catch {
+    return [];
+  }
+  const rects = range.getClientRects();
+  return Array.from(rects, (rect) =>
+    new DOMRect(rect.left, rect.top, rect.width, rect.height),
+  ).filter((rect) => rect.width > 0 && rect.height > 0);
 }

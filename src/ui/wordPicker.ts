@@ -3,6 +3,7 @@ import {
   alignPreparedWordsToDom,
   buildDomWordsForRoots,
   domWordRect,
+  domWordRects,
   preparedIndexByDomIndex,
   type DomWord,
 } from './domWordMap';
@@ -11,14 +12,9 @@ import { paintTtsxRoot } from './theme';
 interface WordTarget {
   article: HTMLElement;
   roots: readonly HTMLElement[];
-  preparedByDom: ReadonlyMap<number, number>;
-  wordsByNode: ReadonlyMap<Text, readonly IndexedWord[]>;
-  wordsByElement: ReadonlyMap<Element, readonly IndexedWord[]>;
-}
-
-interface IndexedWord {
-  domIndex: number;
-  word: DomWord;
+  preparedWords: readonly string[];
+  layoutKey: string;
+  boxes: RenderedWordBox<WordHit>[];
 }
 
 interface WordHit {
@@ -30,14 +26,121 @@ interface WordHit {
 
 let activeCleanup: (() => void) | null = null;
 
-function appendIndexedWord<K>(
-  map: Map<K, IndexedWord[]>,
-  key: K,
-  indexed: IndexedWord,
-): void {
-  const current = map.get(key);
-  if (current) current.push(indexed);
-  else map.set(key, [indexed]);
+export interface RenderedWordBox<T> {
+  value: T;
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}
+
+/** Select the closest rendered glyph box under the pointer. */
+export function renderedWordAtPoint<T>(
+  boxes: readonly RenderedWordBox<T>[],
+  x: number,
+  y: number,
+  padding = 2,
+): T | null {
+  let best: T | null = null;
+  let bestEdgeDistance = Number.POSITIVE_INFINITY;
+  let bestCenterDistance = Number.POSITIVE_INFINITY;
+  for (const box of boxes) {
+    const dx = x < box.left ? box.left - x : x > box.right ? x - box.right : 0;
+    const dy = y < box.top ? box.top - y : y > box.bottom ? y - box.bottom : 0;
+    if (dx > padding || dy > padding) continue;
+    const edgeDistance = dx * dx + dy * dy;
+    const centerX = (box.left + box.right) / 2;
+    const centerY = (box.top + box.bottom) / 2;
+    const centerDistance =
+      (x - centerX) * (x - centerX) + (y - centerY) * (y - centerY);
+    if (
+      edgeDistance < bestEdgeDistance ||
+      (edgeDistance === bestEdgeDistance && centerDistance < bestCenterDistance)
+    ) {
+      best = box.value;
+      bestEdgeDistance = edgeDistance;
+      bestCenterDistance = centerDistance;
+    }
+  }
+  return best;
+}
+
+function articleAtPoint(clientX: number, clientY: number): HTMLElement | null {
+  for (const element of document.elementsFromPoint(clientX, clientY)) {
+    const article = element.closest<HTMLElement>(
+      'article[data-testid="tweet"], article',
+    );
+    if (article) return article;
+  }
+  return null;
+}
+
+function rootForWord(
+  roots: readonly HTMLElement[],
+  word: DomWord,
+): HTMLElement | null {
+  return roots.find((root) => root.contains(word.node)) ?? null;
+}
+
+function wordLayoutKey(roots: readonly HTMLElement[]): string {
+  const scrollX = window.scrollX;
+  const scrollY = window.scrollY;
+  // A scroll can materialize content-visibility:auto paragraphs, so refresh
+  // their rendered fragments even though document-space coordinates persist.
+  return [
+    scrollX.toFixed(2),
+    scrollY.toFixed(2),
+    ...roots.map((root) => {
+      const rect = root.getBoundingClientRect();
+      return [
+        root.isConnected ? 1 : 0,
+        (rect.left + scrollX).toFixed(2),
+        (rect.top + scrollY).toFixed(2),
+        rect.width.toFixed(2),
+        rect.height.toFixed(2),
+      ].join(':');
+    }),
+  ].join('|');
+}
+
+function rebuildWordLayout(target: WordTarget, layoutKey: string): void {
+  const scrollX = window.scrollX;
+  const scrollY = window.scrollY;
+  const rendered = buildDomWordsForRoots(target.roots).flatMap((word) => {
+    const root = rootForWord(target.roots, word);
+    if (!root) return [];
+    const rects = domWordRects(word);
+    return rects.length ? [{ word, root, rects }] : [];
+  });
+  const preparedByDom = preparedIndexByDomIndex(
+    alignPreparedWordsToDom(
+      target.preparedWords,
+      rendered.map(({ word }) => word),
+    ),
+  );
+  const boxes: RenderedWordBox<WordHit>[] = [];
+  for (let domIndex = 0; domIndex < rendered.length; domIndex++) {
+    const preparedIndex = preparedByDom.get(domIndex);
+    if (preparedIndex == null) continue;
+    const { word, root, rects } = rendered[domIndex]!;
+    const hit: WordHit = {
+      article: target.article,
+      root,
+      preparedIndex,
+      word,
+    };
+    for (const rect of rects) {
+      boxes.push({
+        value: hit,
+        left: rect.left + scrollX,
+        right: rect.right + scrollX,
+        top: rect.top + scrollY,
+        bottom: rect.bottom + scrollY,
+      });
+    }
+  }
+  target.layoutKey = layoutKey;
+  target.boxes = boxes;
 }
 
 function buildTarget(
@@ -46,112 +149,16 @@ function buildTarget(
 ): WordTarget | null {
   const roots = readingTextRoots(article);
   if (!roots.length || !preparedWords.length) return null;
-  const words = buildDomWordsForRoots(roots);
-  const preparedByDom = preparedIndexByDomIndex(
-    alignPreparedWordsToDom(preparedWords, words),
-  );
-  if (!preparedByDom.size) return null;
-  const wordsByNode = new Map<Text, IndexedWord[]>();
-  const wordsByElement = new Map<Element, IndexedWord[]>();
-  const rootSet = new Set<HTMLElement>(roots);
-  for (let domIndex = 0; domIndex < words.length; domIndex++) {
-    const word = words[domIndex]!;
-    const indexed = { domIndex, word };
-    appendIndexedWord(wordsByNode, word.node, indexed);
-    let element: HTMLElement | null = word.node.parentElement;
-    while (element) {
-      appendIndexedWord(wordsByElement, element, indexed);
-      if (rootSet.has(element)) break;
-      element = element.parentElement;
-    }
-  }
-  return {
+  const target: WordTarget = {
     article,
     roots,
-    preparedByDom,
-    wordsByNode,
-    wordsByElement,
+    preparedWords,
+    layoutKey: '',
+    boxes: [],
   };
-}
-
-function articleAtPoint(clientX: number, clientY: number): HTMLElement | null {
-  const element = document.elementFromPoint(clientX, clientY);
-  return (
-    element?.closest<HTMLElement>('article[data-testid="tweet"]') ?? null
-  );
-}
-
-interface CaretPoint {
-  node: Node;
-  offset: number;
-}
-
-type CaretDocument = Document & {
-  caretPositionFromPoint?: (
-    x: number,
-    y: number,
-  ) => { offsetNode: Node; offset: number } | null;
-  caretRangeFromPoint?: (x: number, y: number) => Range | null;
-};
-
-function caretAtPoint(clientX: number, clientY: number): CaretPoint | null {
-  const doc = document as CaretDocument;
-  try {
-    const position = doc.caretPositionFromPoint?.(clientX, clientY);
-    if (position) return { node: position.offsetNode, offset: position.offset };
-  } catch {
-    /* spatial hit testing below remains authoritative */
-  }
-  try {
-    const range = doc.caretRangeFromPoint?.(clientX, clientY);
-    if (range) {
-      return { node: range.startContainer, offset: range.startOffset };
-    }
-  } catch {
-    /* spatial hit testing below remains authoritative */
-  }
-  return null;
-}
-
-export function wordRectContainsPoint(
-  rect: Pick<DOMRect, 'left' | 'right' | 'top' | 'bottom'>,
-  clientX: number,
-  clientY: number,
-  padding = 2,
-): boolean {
-  return (
-    clientX >= rect.left - padding &&
-    clientX <= rect.right + padding &&
-    clientY >= rect.top - padding &&
-    clientY <= rect.bottom + padding
-  );
-}
-
-function hitIndexedWord(
-  target: WordTarget,
-  root: HTMLElement,
-  indexed: IndexedWord,
-  clientX: number,
-  clientY: number,
-): WordHit | null {
-  const preparedIndex = target.preparedByDom.get(indexed.domIndex);
-  if (preparedIndex == null) return null;
-  const rect = domWordRect(indexed.word);
-  if (!rect || !wordRectContainsPoint(rect, clientX, clientY)) return null;
-  return {
-    article: target.article,
-    root,
-    preparedIndex,
-    word: indexed.word,
-  };
-}
-
-function rootForNode(
-  target: WordTarget,
-  node: Node | null,
-): HTMLElement | null {
-  if (!node) return null;
-  return target.roots.find((root) => root.contains(node)) ?? null;
+  const layoutKey = wordLayoutKey(roots);
+  rebuildWordLayout(target, layoutKey);
+  return target.boxes.length ? target : null;
 }
 
 function wordAtPoint(
@@ -159,39 +166,15 @@ function wordAtPoint(
   clientX: number,
   clientY: number,
 ): WordHit | null {
-  const element = document.elementFromPoint(clientX, clientY);
-  const caret = caretAtPoint(clientX, clientY);
-  const root =
-    rootForNode(target, element) ?? rootForNode(target, caret?.node ?? null);
-  if (!root) return null;
-
-  // Fast path: use the browser's caret boundary, then confirm with the
-  // rendered word rectangle so a block-edge caret cannot select a neighbour.
-  if (caret?.node instanceof Text) {
-    for (const indexed of target.wordsByNode.get(caret.node) ?? []) {
-      const { word } = indexed;
-      if (caret.offset < word.start || caret.offset > word.end) continue;
-      const hit = hitIndexedWord(target, root, indexed, clientX, clientY);
-      if (hit) return hit;
-    }
+  const layoutKey = wordLayoutKey(target.roots);
+  if (layoutKey !== target.layoutKey) {
+    rebuildWordLayout(target, layoutKey);
   }
-
-  // Chromium can resolve the first glyph of a block to the previous block's
-  // caret. Scan only the text-bearing element under the pointer as a precise
-  // spatial fallback; this also keeps contractions such as “I’ve” intact.
-  let candidateElement: Element | null = element;
-  while (candidateElement && root.contains(candidateElement)) {
-    const candidates = target.wordsByElement.get(candidateElement);
-    if (candidates) {
-      for (const indexed of candidates) {
-        const hit = hitIndexedWord(target, root, indexed, clientX, clientY);
-        if (hit) return hit;
-      }
-    }
-    if (candidateElement === root) break;
-    candidateElement = candidateElement.parentElement;
-  }
-  return null;
+  return renderedWordAtPoint(
+    target.boxes,
+    clientX + window.scrollX,
+    clientY + window.scrollY,
+  );
 }
 
 interface HoverScheduler {
