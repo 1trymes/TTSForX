@@ -57,6 +57,7 @@ import {
 import { computePopoverPlacement } from '../src/ui/settingsPopover';
 import { karaokePlacementMotion } from '../src/ui/karaokeHighlight';
 import { rangeFillPercent } from '../src/ui/rangeFill';
+import { selectedVoiceScrollTop } from '../src/ui/voiceMenu';
 import {
   actionIconSize,
   resolveActionIconColor,
@@ -500,6 +501,13 @@ describe('settings range fill', () => {
     expect(rangeFillPercent(0, 2, -1)).toBe(0);
     expect(rangeFillPercent(0, 2, 3)).toBe(100);
     expect(rangeFillPercent(1, 1, 1)).toBe(0);
+  });
+});
+
+describe('voice menu positioning', () => {
+  it('centers the selected voice inside the compact list without negative scroll', () => {
+    expect(selectedVoiceScrollTop(200, 40, 132)).toBe(154);
+    expect(selectedVoiceScrollTop(20, 40, 132)).toBe(0);
   });
 });
 

@@ -19,6 +19,7 @@ import { DEFAULT_VOICE, MENU_VOICES } from '../tts/voices';
 import { applyTheme, paintTtsxRoot, syncActionIconColor } from './theme';
 import { bindGenerationQualityRange } from './qualityRange';
 import { bindRangeFill, paintRangeFill } from './rangeFill';
+import { centerSelectedVoice } from './voiceMenu';
 
 let openEl: HTMLElement | null = null;
 let outsideHandler: ((e: Event) => void) | null = null;
@@ -254,7 +255,7 @@ export async function openSettingsPopover(
           <svg class="ttsx-chevron" viewBox="0 0 12 8" aria-hidden="true"><path d="M1 1l5 5 5-5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
         </span>
       </button>
-      <div class="ttsx-voice-list" data-ttsx="voiceList" role="listbox" hidden></div>
+      <div class="ttsx-voice-list" data-ttsx="voiceList" role="listbox" aria-hidden="true"></div>
     </div>
 
     <label class="ttsx-field">
@@ -298,9 +299,11 @@ export async function openSettingsPopover(
   `;
 
   const list = pop.querySelector<HTMLElement>('[data-ttsx="voiceList"]')!;
+  list.inert = true;
+  const showVoiceGroups = new Set(MENU_VOICES.map((voice) => voice.group)).size > 1;
   let lastGroup = '';
   for (const v of MENU_VOICES) {
-    if (v.group && v.group !== lastGroup) {
+    if (showVoiceGroups && v.group && v.group !== lastGroup) {
       lastGroup = v.group;
       const g = document.createElement('div');
       g.className = 'ttsx-voice-group';
@@ -415,16 +418,41 @@ export async function openSettingsPopover(
 
   function setVoiceOpen(open: boolean): void {
     voiceOpen = open;
-    list.hidden = !open;
+    list.inert = !open;
+    list.setAttribute('aria-hidden', open ? 'false' : 'true');
     voiceBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
     pop.classList.toggle('ttsx-voice-open', open);
-    schedulePlacement();
+    if (open) {
+      requestAnimationFrame(() => {
+        if (!voiceOpen || !list.isConnected) return;
+        const selected = list.querySelector<HTMLElement>(
+          '.ttsx-voice-opt[aria-selected="true"]',
+        );
+        centerSelectedVoice(list, selected);
+      });
+    }
   }
 
   voiceBtn.addEventListener('click', (e) => {
     e.preventDefault();
     e.stopPropagation();
     setVoiceOpen(!voiceOpen);
+  });
+
+  pop.addEventListener('click', (event) => {
+    if (!voiceOpen) return;
+    const target = event.target;
+    if (target instanceof Element && target.closest('.ttsx-field--voice')) {
+      return;
+    }
+    setVoiceOpen(false);
+  });
+
+  pop.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || !voiceOpen) return;
+    event.preventDefault();
+    setVoiceOpen(false);
+    voiceBtn.focus();
   });
 
   list.addEventListener('click', (e) => {

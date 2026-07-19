@@ -12,6 +12,7 @@ import {
 import { DEFAULT_VOICE, MENU_VOICES } from '../../tts/voices';
 import { bindGenerationQualityRange } from '../../ui/qualityRange';
 import { bindRangeFill, paintRangeFill } from '../../ui/rangeFill';
+import { centerSelectedVoice } from '../../ui/voiceMenu';
 
 const ICON_PLAY = `
   <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -66,9 +67,19 @@ function paintVolume(value: number): void {
 
 function setVoiceOpen(open: boolean): void {
   voiceOpen = open;
-  voiceList.hidden = !open;
+  voiceList.inert = !open;
+  voiceList.setAttribute('aria-hidden', open ? 'false' : 'true');
   voiceButton.setAttribute('aria-expanded', open ? 'true' : 'false');
   document.body.classList.toggle('voice-open', open);
+  if (open) {
+    requestAnimationFrame(() => {
+      if (!voiceOpen) return;
+      const selected = voiceList.querySelector<HTMLElement>(
+        '.voice-option[aria-selected="true"]',
+      );
+      centerSelectedVoice(voiceList, selected);
+    });
+  }
 }
 
 function paintPreviewButtons(): void {
@@ -134,9 +145,12 @@ function paintSettings(settings: Settings): void {
 
 function buildVoiceList(selected: string): void {
   voiceList.innerHTML = '';
+  const showVoiceGroups = new Set(
+    MENU_VOICES.map((voice) => voice.group),
+  ).size > 1;
   let lastGroup = '';
   for (const voice of MENU_VOICES) {
-    if (voice.group !== lastGroup) {
+    if (showVoiceGroups && voice.group !== lastGroup) {
       lastGroup = voice.group;
       const heading = document.createElement('div');
       heading.className = 'voice-group';
@@ -217,6 +231,20 @@ async function sendToContent<T>(
 
 voiceButton.addEventListener('click', () => setVoiceOpen(!voiceOpen));
 
+document.addEventListener('click', (event) => {
+  if (!voiceOpen) return;
+  const target = event.target;
+  if (target instanceof Element && target.closest('.voice-field')) return;
+  setVoiceOpen(false);
+});
+
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape' || !voiceOpen) return;
+  event.preventDefault();
+  setVoiceOpen(false);
+  voiceButton.focus();
+});
+
 voiceList.addEventListener('click', (event) => {
   const target = event.target as HTMLElement;
   const preview = target.closest<HTMLButtonElement>('.voice-preview');
@@ -289,6 +317,7 @@ startFrom.addEventListener('click', () => {
 
 const settings = await loadSettings();
 buildVoiceList(settings.voice);
+voiceList.inert = true;
 paintSettings(settings);
 paintPreviewButtons();
 
