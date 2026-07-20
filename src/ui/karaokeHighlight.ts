@@ -7,13 +7,14 @@ import { readingTextRoots } from '../x/textRoot';
 import {
   alignPreparedWordsToDom,
   buildDomWordsForRoots,
-  domWordRect,
+  domWordRects,
   isDomWordConnected,
+  mergeWordRectsByLine,
   type DomWord,
 } from './domWordMap';
 import { paintTtsxRoot } from './theme';
 
-let pill: HTMLDivElement | null = null;
+let pills: HTMLDivElement[] = [];
 let host: HTMLElement | null = null;
 let articleEl: HTMLElement | null = null;
 let textRoots: HTMLElement[] = [];
@@ -71,8 +72,8 @@ function ensureHost(article: HTMLElement): HTMLElement {
 
 function teardownHost(): void {
   cancelPendingReveal();
-  pill?.remove();
-  pill = null;
+  for (const pill of pills) pill.remove();
+  pills = [];
   host?.remove();
   host = null;
 
@@ -86,21 +87,29 @@ function teardownHost(): void {
   hostPrevPosition = '';
 }
 
-function ensurePill(article: HTMLElement): HTMLDivElement {
+function ensurePills(
+  article: HTMLElement,
+  count: number,
+): HTMLDivElement[] {
   const currentHost = ensureHost(article);
-  if (pill?.isConnected && pill.parentElement === currentHost) return pill;
-
-  pill = document.createElement('div');
-  pill.className = 'ttsx-karaoke-pill';
-  pill.setAttribute('aria-hidden', 'true');
-  paintTtsxRoot(pill);
-  currentHost.appendChild(pill);
-  return pill;
+  pills = pills.filter(
+    (pill) => pill.isConnected && pill.parentElement === currentHost,
+  );
+  while (pills.length > count) pills.pop()?.remove();
+  while (pills.length < count) {
+    const pill = document.createElement('div');
+    pill.className = 'ttsx-karaoke-pill';
+    pill.setAttribute('aria-hidden', 'true');
+    paintTtsxRoot(pill);
+    currentHost.appendChild(pill);
+    pills.push(pill);
+  }
+  return pills;
 }
 
 function hidePill(): void {
   cancelPendingReveal();
-  pill?.classList.remove('ttsx-karaoke-pill--on');
+  for (const pill of pills) pill.classList.remove('ttsx-karaoke-pill--on');
 }
 
 function observeTextRoots(roots: readonly HTMLElement[]): void {
@@ -125,43 +134,55 @@ function placePillOver(word: DomWord, morph: boolean): void {
     return;
   }
 
-  const wordRect = domWordRect(word);
-  if (!wordRect) {
+  const wordRects = mergeWordRectsByLine(domWordRects(word));
+  if (!wordRects.length) {
     hidePill();
     return;
   }
 
   const padX = 3;
   const padY = 1;
-  const el = ensurePill(articleEl);
+  const previousCount = pills.length;
+  const elements = ensurePills(articleEl, wordRects.length);
   const articleRect = articleEl.getBoundingClientRect();
-  const x = wordRect.left - articleRect.left + articleEl.scrollLeft - padX;
-  const y = wordRect.top - articleRect.top + articleEl.scrollTop - padY;
-  const width = Math.max(4, wordRect.width + padX * 2);
-  const height = Math.max(4, wordRect.height + padY * 2);
+  const useMorph = morph && wordRects.length === 1 && previousCount === 1;
 
   cancelPendingReveal();
-  el.classList.toggle('ttsx-karaoke-pill--snap', !morph);
-  el.style.width = `${Math.round(width)}px`;
-  el.style.height = `${Math.round(height)}px`;
-  el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
+  for (let index = 0; index < wordRects.length; index++) {
+    const wordRect = wordRects[index]!;
+    const element = elements[index]!;
+    const x = wordRect.left - articleRect.left + articleEl.scrollLeft - padX;
+    const y = wordRect.top - articleRect.top + articleEl.scrollTop - padY;
+    const width = Math.max(4, wordRect.width + padX * 2);
+    const height = Math.max(4, wordRect.height + padY * 2);
+    element.classList.toggle('ttsx-karaoke-pill--snap', !useMorph);
+    element.style.width = `${Math.round(width)}px`;
+    element.style.height = `${Math.round(height)}px`;
+    element.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
+  }
 
-  if (morph) {
-    el.classList.add('ttsx-karaoke-pill--on');
+  if (useMorph) {
+    elements[0]!.classList.add('ttsx-karaoke-pill--on');
     return;
   }
 
-  // Let the browser commit the correct first-word geometry while the pill is
-  // hidden. Revealing it on the next frame prevents a visible trip from 0,0.
-  el.classList.remove('ttsx-karaoke-pill--on');
+  // Multi-line words snap each rendered line fragment into place. Animating a
+  // union between those fragments would sweep across unrelated text.
+  for (const element of elements) {
+    element.classList.remove('ttsx-karaoke-pill--on');
+  }
   revealFrame = requestAnimationFrame(() => {
     revealFrame = null;
-    if (pill !== el || !el.isConnected) return;
-    el.classList.add('ttsx-karaoke-pill--on');
+    if (elements.some((element) => !element.isConnected)) return;
+    for (const element of elements) {
+      element.classList.add('ttsx-karaoke-pill--on');
+    }
     revealFrame = requestAnimationFrame(() => {
       revealFrame = null;
-      if (pill === el && el.isConnected) {
-        el.classList.remove('ttsx-karaoke-pill--snap');
+      for (const element of elements) {
+        if (element.isConnected) {
+          element.classList.remove('ttsx-karaoke-pill--snap');
+        }
       }
     });
   });

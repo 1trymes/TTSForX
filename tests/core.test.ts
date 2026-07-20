@@ -63,6 +63,7 @@ import {
   alignPreparedWordsToDom,
   isDomWordConnected,
   mapRenderedWordsToDom,
+  mergeWordRectsByLine,
   preparedIndexByDomIndex,
   type DomWord,
   type DomWordFragment,
@@ -336,6 +337,19 @@ describe('playback controls and acoustic karaoke timing', () => {
     expect(renderedWordAtPoint(boxes, 36, 172)).toBe("I've");
     expect(renderedWordAtPoint(boxes, 68, 172)).toBe("I've");
     expect(renderedWordAtPoint(boxes, 110, 172)).toBe('spent');
+  });
+
+  it('keeps a soft-wrapped hyphenated word in separate line pills', () => {
+    const merged = mergeWordRectsByLine([
+      { left: 46, top: 100, right: 76, bottom: 124, width: 30, height: 24 },
+      { left: 76, top: 100, right: 120, bottom: 124, width: 44, height: 24 },
+      { left: 46, top: 132, right: 132, bottom: 156, width: 86, height: 24 },
+    ]);
+
+    expect(merged).toEqual([
+      { left: 46, top: 100, right: 120, bottom: 124, width: 74, height: 24 },
+      { left: 46, top: 132, right: 132, bottom: 156, width: 86, height: 24 },
+    ]);
   });
 
   it('rejects incomplete acoustic alignment instead of using a fallback', () => {

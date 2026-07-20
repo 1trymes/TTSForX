@@ -689,8 +689,13 @@
 }
 .ttsx-word-picker-hover {
   position: fixed;
+  inset: 0 auto auto 0;
   z-index: 2;
   display: block;
+  pointer-events: none;
+}
+.ttsx-word-picker-hover-fragment {
+  position: fixed;
   pointer-events: none;
   border: 1px solid var(--ttsx-accent);
   border-radius: 4px;

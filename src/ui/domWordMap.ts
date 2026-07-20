@@ -16,6 +16,15 @@ export interface DomWord {
   fragments: readonly DomWordFragment[];
 }
 
+export interface RenderedRect {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+  width: number;
+  height: number;
+}
+
 /**
  * CSS visibility is the boundary between page content and hidden source copies.
  * We deliberately ignore extension-specific classes and aria-hidden: aria-hidden
@@ -225,22 +234,55 @@ export function isDomWordConnected(word: DomWord): boolean {
   return word.fragments.every((fragment) => fragment.node.isConnected);
 }
 
-export function domWordRect(word: DomWord): DOMRect | null {
-  const rects = domWordRects(word);
-  if (!rects.length) return null;
-
-  let left = rects[0]!.left;
-  let top = rects[0]!.top;
-  let right = rects[0]!.right;
-  let bottom = rects[0]!.bottom;
-  for (let index = 1; index < rects.length; index++) {
-    const rect = rects[index]!;
-    left = Math.min(left, rect.left);
-    top = Math.min(top, rect.top);
-    right = Math.max(right, rect.right);
-    bottom = Math.max(bottom, rect.bottom);
+/**
+ * Coalesce wrapper-split glyph boxes on one line while keeping soft-wrapped
+ * pieces separate. A single union box across lines would cover unrelated text.
+ */
+export function mergeWordRectsByLine(
+  rects: readonly RenderedRect[],
+  tolerance = 2,
+): RenderedRect[] {
+  const merged: RenderedRect[] = [];
+  for (const rect of rects) {
+    if (rect.width <= 0 || rect.height <= 0) continue;
+    const previous = merged[merged.length - 1];
+    if (previous) {
+      const verticalOverlap =
+        Math.min(previous.bottom, rect.bottom) -
+        Math.max(previous.top, rect.top);
+      const sameLine =
+        verticalOverlap >= Math.min(previous.height, rect.height) * 0.6;
+      const horizontalGap = Math.max(
+        0,
+        rect.left - previous.right,
+        previous.left - rect.right,
+      );
+      if (sameLine && horizontalGap <= tolerance) {
+        const left = Math.min(previous.left, rect.left);
+        const top = Math.min(previous.top, rect.top);
+        const right = Math.max(previous.right, rect.right);
+        const bottom = Math.max(previous.bottom, rect.bottom);
+        merged[merged.length - 1] = {
+          left,
+          top,
+          right,
+          bottom,
+          width: right - left,
+          height: bottom - top,
+        };
+        continue;
+      }
+    }
+    merged.push({
+      left: rect.left,
+      top: rect.top,
+      right: rect.right,
+      bottom: rect.bottom,
+      width: rect.width,
+      height: rect.height,
+    });
   }
-  return new DOMRect(left, top, right - left, bottom - top);
+  return merged;
 }
 
 /** Exact rendered fragments for pointer hit testing. */

@@ -2,9 +2,9 @@ import { readingTextRoots } from '../x/textRoot';
 import {
   alignPreparedWordsToDom,
   buildDomWordsForRoots,
-  domWordRect,
   domWordRects,
   isDomWordConnected,
+  mergeWordRectsByLine,
   preparedIndexByDomIndex,
   type DomWord,
 } from './domWordMap';
@@ -279,17 +279,37 @@ function createHover(): HTMLDivElement {
   return hover;
 }
 
+function hoverFragments(
+  hover: HTMLElement,
+  count: number,
+): HTMLElement[] {
+  while (hover.children.length > count) hover.lastElementChild?.remove();
+  while (hover.children.length < count) {
+    const fragment = document.createElement('div');
+    fragment.className = 'ttsx-word-picker-hover-fragment';
+    hover.appendChild(fragment);
+  }
+  return [...hover.children] as HTMLElement[];
+}
+
 function paintHover(hover: HTMLElement, hit: WordHit | null): void {
-  const rect = hit ? domWordRect(hit.word) : null;
-  if (!rect) {
+  const rects = hit
+    ? mergeWordRectsByLine(domWordRects(hit.word))
+    : [];
+  if (!rects.length) {
     hover.hidden = true;
     return;
   }
   hover.hidden = false;
-  hover.style.left = `${Math.round(rect.left - 3)}px`;
-  hover.style.top = `${Math.round(rect.top - 2)}px`;
-  hover.style.width = `${Math.round(rect.width + 6)}px`;
-  hover.style.height = `${Math.round(rect.height + 4)}px`;
+  const fragments = hoverFragments(hover, rects.length);
+  for (let index = 0; index < rects.length; index++) {
+    const rect = rects[index]!;
+    const fragment = fragments[index]!;
+    fragment.style.left = `${Math.round(rect.left - 3)}px`;
+    fragment.style.top = `${Math.round(rect.top - 2)}px`;
+    fragment.style.width = `${Math.round(rect.width + 6)}px`;
+    fragment.style.height = `${Math.round(rect.height + 4)}px`;
+  }
 }
 
 export function stopWordPicker(): void {
