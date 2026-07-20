@@ -5,6 +5,7 @@ import {
   saveSettings,
   type Settings,
 } from '../../tts/settings';
+import { registerExtensionEvent } from '../../runtime/extensionEvent';
 import {
   generationQualityLabel,
   generationQualitySliderPosition,
@@ -353,18 +354,34 @@ const previewMessageListener = (
   previewState = state;
   paintPreviewButtons();
 };
-browser.runtime.onMessage.addListener(previewMessageListener);
+let popupInvalidated = false;
+const popupInvalidationCallbacks = new Set<() => void>();
+const popupContext = {
+  get isInvalid() {
+    return popupInvalidated || browser.runtime?.id == null;
+  },
+  onInvalidated(callback: () => void) {
+    popupInvalidationCallbacks.add(callback);
+  },
+};
+registerExtensionEvent(
+  popupContext,
+  () => browser.runtime?.onMessage,
+  previewMessageListener,
+);
 
 window.addEventListener(
   'pagehide',
   () => {
+    popupInvalidated = true;
+    for (const callback of popupInvalidationCallbacks) callback();
+    popupInvalidationCallbacks.clear();
     if (activePreviewVoice) {
       void sendToContent({
         type: 'ttsx:preview-voice',
         voice: null,
       });
     }
-    browser.runtime.onMessage.removeListener(previewMessageListener);
     removeSettingsListener();
     disposeQualityBinding();
     for (const dispose of disposeRangeFills) dispose();

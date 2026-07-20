@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { registerExtensionEvent } from '../src/runtime/extensionEvent';
 import {
   cacheClear,
   cacheGet,
@@ -105,6 +106,60 @@ function domFragment(
 function domWord(text: string): DomWord {
   return { text, fragments: [domFragment(text)] };
 }
+
+describe('extension-context event registration', () => {
+  it('does not throw when Chrome has already removed the runtime event', () => {
+    const context = {
+      isInvalid: false,
+      onInvalidated: vi.fn(),
+    };
+
+    expect(
+      registerExtensionEvent(context, () => undefined, vi.fn()),
+    ).toBe(false);
+    expect(context.onInvalidated).not.toHaveBeenCalled();
+  });
+
+  it('removes a listener exactly once when the context is invalidated', () => {
+    let invalidate: (() => void) | null = null;
+    const listener = vi.fn();
+    const event = {
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+    };
+    const context = {
+      isInvalid: false,
+      onInvalidated(callback: () => void) {
+        invalidate = callback;
+      },
+    };
+
+    expect(registerExtensionEvent(context, () => event, listener)).toBe(true);
+    expect(event.addListener).toHaveBeenCalledWith(listener);
+    invalidate!();
+    invalidate!();
+    expect(event.removeListener).toHaveBeenCalledTimes(1);
+  });
+
+  it('closes the add-listener race when invalidation happens mid-registration', () => {
+    let validityChecks = 0;
+    const event = {
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+    };
+    const context = {
+      get isInvalid() {
+        validityChecks++;
+        return validityChecks > 1;
+      },
+      onInvalidated: vi.fn(),
+    };
+
+    expect(registerExtensionEvent(context, () => event, vi.fn())).toBe(false);
+    expect(event.addListener).toHaveBeenCalledTimes(1);
+    expect(event.removeListener).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe('text preparation and chunking', () => {
   it('normalizes social text without leaving URL or emoji noise', () => {

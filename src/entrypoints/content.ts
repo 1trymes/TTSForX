@@ -4,6 +4,7 @@
  */
 import '../ui/styles.css';
 import { debugHandledFailure } from '../diagnostics';
+import { registerExtensionEvent } from '../runtime/extensionEvent';
 import { cacheStats } from '../tts/cache';
 import { engine } from '../tts/engine';
 import { locateWords } from '../tts/karaokeCues';
@@ -607,10 +608,12 @@ export default defineContentScript({
       }
       return undefined;
     };
-    browser.runtime.onMessage.addListener(toolbarMessageListener);
-    ctx.onInvalidated(() => {
-      browser.runtime.onMessage.removeListener(toolbarMessageListener);
-    });
+    const messageListenerReady = registerExtensionEvent(
+      ctx,
+      () => browser.runtime?.onMessage,
+      toolbarMessageListener,
+    );
+    if (!messageListenerReady) return;
 
     ctx.setTimeout(scheduleScan, 1500);
 
