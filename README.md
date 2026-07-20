@@ -1,5 +1,7 @@
 # TTSForX
 
+https://github.com/user-attachments/assets/7249ef03-bd47-49cc-be41-46d8ea82a5ec
+
 TTSForX reads posts on X aloud in your browser. It uses the official
 [Supertonic 3](https://huggingface.co/Supertone/supertonic-3) model through
 WebGPU. Speech, generated audio, and caption timing stay on your device.
