@@ -10,7 +10,16 @@ function isForeignTextRoot(
   article: HTMLElement,
 ): boolean {
   const nested = node.closest('article');
-  if (nested && nested !== article) return true;
+  if (nested && nested !== article) {
+    // X Articles render their readable title/body inside a second article
+    // (`twitterArticleReadView`) nested in the tweet article that owns the
+    // action bar. Treat that one container as part of the owning post; other
+    // nested articles are quotes/replies and must stay excluded.
+    const isOwnedLongFormArticle =
+      nested.getAttribute('data-testid') === 'twitterArticleReadView' &&
+      nested.closest(SELECTORS.tweet) === article;
+    if (!isOwnedLongFormArticle) return true;
+  }
   if (node.closest('[data-testid="quoteTweet"]')) return true;
   if (node.closest('[data-testid="card.wrapper"]')) return true;
 

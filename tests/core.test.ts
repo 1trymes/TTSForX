@@ -780,11 +780,20 @@ describe('karaoke pill movement', () => {
 });
 
 describe('X Article reading surfaces', () => {
-  function rootInside(article: HTMLElement): HTMLElement {
+  function rootInside(
+    article: HTMLElement,
+    closestArticle = article,
+    testId?: string,
+  ): HTMLElement {
     return {
       parentElement: article,
-      closest: (selector: string) =>
-        selector === 'article' ? article : null,
+      getAttribute: (name: string) =>
+        name === 'data-testid' ? testId ?? null : null,
+      closest: (selector: string) => {
+        if (selector === 'article') return closestArticle;
+        if (selector === SELECTORS.tweet) return article;
+        return null;
+      },
     } as unknown as HTMLElement;
   }
 
@@ -799,6 +808,33 @@ describe('X Article reading surfaces', () => {
       if (selector === LONG_FORM_TEXT_ROOT) return [body];
       return [];
     }) as unknown as typeof article.querySelectorAll;
+
+    expect(readingTextRoots(article)).toEqual([title, body]);
+  });
+
+  it('accepts long-form roots nested in X Article read view', () => {
+    const article = {} as HTMLElement;
+    const readView = {
+      getAttribute: () => 'twitterArticleReadView',
+    } as unknown as HTMLElement;
+    const title = rootInside(article, readView, 'twitterArticleReadView');
+    const body = rootInside(article, readView, 'twitterArticleReadView');
+    article.querySelector = ((selector: string) =>
+      selector === ARTICLE_TITLE_ROOT ? title : null) as typeof article.querySelector;
+    article.querySelectorAll = ((selector: string) => {
+      if (selector === SELECTORS.tweetText) return [];
+      if (selector === LONG_FORM_TEXT_ROOT) return [body];
+      return [];
+    }) as unknown as typeof article.querySelectorAll;
+    title.closest = ((selector: string) =>
+      selector === 'article'
+        ? readView
+        : selector === SELECTORS.tweet
+          ? article
+          : null) as typeof title.closest;
+    body.closest = title.closest;
+    readView.closest = ((selector: string) =>
+      selector === SELECTORS.tweet ? article : null) as typeof readView.closest;
 
     expect(readingTextRoots(article)).toEqual([title, body]);
   });
