@@ -47,6 +47,8 @@ export interface PlayOptions {
   maxChunks?: number;
   /** Resume synthesis after a partial cache warm. */
   startChunk?: number;
+  /** Cancel speculative work without stopping playback or another request. */
+  signal?: AbortSignal;
 }
 
 interface GenOut {
@@ -164,6 +166,7 @@ class TtsEngine {
   private uiLoads = 0;
 
   private genBusy = false;
+  private generationEpoch = 0;
   private genQueue: Array<{
     key: string;
     priority: number;
@@ -297,6 +300,7 @@ class TtsEngine {
 
   /** Abort in-flight worker synth + drop queued jobs so the next tap isn't stuck. */
   private cancelGeneration(reason = 'cancelled'): void {
+    this.generationEpoch++;
     try {
       this.post({ type: 'cancel' });
     } catch {
@@ -310,6 +314,10 @@ class TtsEngine {
     for (const job of queued) {
       job.reject(new Error(reason));
     }
+    // A same-post click must not join a cancelled warm promise while its
+    // rejection/finally callbacks are still draining through microtasks.
+    this.inflight.clear();
+    this.inflightChunks.clear();
   }
 
   private isCancelledError(e: unknown): boolean {
@@ -396,7 +404,11 @@ class TtsEngine {
     text: string,
     opts: PlayOptions & { onChunk?: ChunkListener } = {},
   ): Promise<GenOut> {
+    const epoch = this.generationEpoch;
     await loadSettings();
+    if (opts.signal?.aborted || epoch !== this.generationEpoch || this.disposed) {
+      throw new Error('cancelled');
+    }
     this.settings = getSettings();
 
     const spoken = prepareTextForSpeech(text);
@@ -465,6 +477,7 @@ class TtsEngine {
           null,
           opts.onChunk,
           key,
+          opts.signal,
         );
         return {
           chunks: [...hit.chunks, ...rest.chunks],
@@ -536,6 +549,7 @@ class TtsEngine {
             null,
             opts.onChunk,
             key,
+            opts.signal,
           );
           return {
             chunks: [...after.chunks, ...rest.chunks],
@@ -570,7 +584,9 @@ class TtsEngine {
         maxChunks ?? null,
         undefined,
         key,
+        opts.signal,
       ).finally(() => {
+        if (this.inflight.get(jobKey) !== shared) return;
         this.inflight.delete(jobKey);
         const hasRelatedJob = [...this.inflight.keys()].some((candidate) =>
           jobKeyBelongsTo(candidate, key),
@@ -640,18 +656,32 @@ class TtsEngine {
     maxChunks: number | null,
     onChunk?: ChunkListener,
     cacheKeyForStore?: string,
+    signal?: AbortSignal,
   ): Promise<GenOut> {
     const storeKey = cacheKeyForStore ?? jobKey;
-    return new Promise<GenOut>((resolve, reject) => {
-      this.genQueue.push({
+    const epoch = this.generationEpoch;
+    let cleanup = () => {};
+    const promise = new Promise<GenOut>((resolve, reject) => {
+      let requestId: number | null = null;
+      const checkCancelled = () => {
+        if (signal?.aborted || epoch !== this.generationEpoch || this.disposed) {
+          throw new Error('cancelled');
+        }
+      };
+      const job = {
         key: jobKey,
         priority,
         resolve,
         reject,
         run: async () => {
+          checkCancelled();
           await this.ensureBackend();
+          // An abort while the offscreen port was opening must not resurrect
+          // old speculative work after a new playback request takes priority.
+          checkCancelled();
 
           const id = ++this.reqId;
+          requestId = id;
           const listeners =
             this.inflightChunks.get(storeKey) ?? new Set<ChunkListener>();
           if (onChunk) listeners.add(onChunk);
@@ -695,10 +725,33 @@ class TtsEngine {
           );
           return result;
         },
-      });
+      };
+      const abort = () => {
+        const index = this.genQueue.indexOf(job);
+        if (index >= 0) this.genQueue.splice(index, 1);
+        if (requestId != null) {
+          const pending = this.pending.get(requestId);
+          if (pending) {
+            this.pending.delete(requestId);
+            pending.reject('cancelled');
+            // Include the request ID: a late abort cannot cancel a newer
+            // foreground job belonging to the same tab.
+            try { this.port?.postMessage({ type: 'cancel', id: requestId }); } catch {}
+          }
+        }
+        reject(new Error('cancelled'));
+      };
+      if (signal?.aborted) {
+        abort();
+        return;
+      }
+      signal?.addEventListener('abort', abort, { once: true });
+      cleanup = () => signal?.removeEventListener('abort', abort);
+      this.genQueue.push(job);
       this.genQueue.sort((a, b) => b.priority - a.priority);
       void this.drainGenQueue();
     });
+    return promise.finally(() => cleanup());
   }
 
   private async drainGenQueue(): Promise<void> {

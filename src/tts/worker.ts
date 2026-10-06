@@ -206,6 +206,7 @@ async function runGenerate(msg: {
           stage,
         });
       },
+      () => cancelled(epoch),
     );
     throwIfCancelled(epoch);
     send(

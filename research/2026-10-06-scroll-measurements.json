@@ -1,0 +1,27 @@
+{
+  "date": "2026-10-06",
+  "baselineRevision": "4755bc2",
+  "liveDisabledBaseline": false,
+  "foregroundScrollBefore": {
+    "frames": 1879, "meanMs": 4.2576370409792625, "medianMs": 4.2,
+    "p95Ms": 4.3, "over10ms": 10, "over25ms": 0, "longTasks": []
+  },
+  "foregroundScrollAfter": {
+    "frames": 1847, "meanMs": 4.332051976177595, "medianMs": 4.2,
+    "p95Ms": 4.3, "over10ms": 12, "over25ms": 1, "longTasks": [],
+    "backgroundSynthesisStarts": 0, "cachePosts": 2, "cacheBytes": 4480544
+  },
+  "excludedNotExplicitlyForeground": {
+    "scroll": { "frames": 195, "meanMs": 41.150769230769235, "medianMs": 41.7, "p95Ms": 41.8, "over10ms": 191, "over25ms": 191, "longTasks": [] },
+    "stationary": { "frames": 4, "meanMs": 1004.1000000000022, "medianMs": 1004.1 }
+  },
+  "stationaryAfterBringToFront": { "frames": 961, "meanMs": 4.1663891779396405, "medianMs": 4.2, "p95Ms": 4.3 },
+  "cachedPlayback": { "clickToLoadingMs": 5.2, "clickToPlayingMs": 30.6, "returnedIdleMs": 3521 },
+  "harness": {
+    "durationMs": 30000, "restMs": 8000, "inputIntervalMs": 100,
+    "newPostsPerSecond": 5, "mockSynthesisMs": 250,
+    "disabled": { "scrollStarts": 0, "geometryReads": 0, "totalStarts": 0 },
+    "before": { "scrollStarts": 60, "geometryReads": 1110, "preloads": 1, "firstStartMs": 400, "totalStarts": 60 },
+    "after": { "scrollStarts": 0, "geometryReads": 0, "preloads": 0, "totalStarts": 2, "startTimesMs": [31400, 36650] }
+  }
+}

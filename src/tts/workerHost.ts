@@ -70,7 +70,10 @@ export class TtsWorkerHost {
     const msg = message as BusMessage;
 
     if (msg.type === 'cancel') {
-      this.cancelSession(typeof msg.sid === 'string' ? msg.sid : '');
+      this.cancelSession(
+        typeof msg.sid === 'string' ? msg.sid : '',
+        msg.id == null ? undefined : Number(msg.id),
+      );
       return;
     }
 
@@ -119,6 +122,12 @@ export class TtsWorkerHost {
   }
 
   private queueGenerate(request: GenerateRequest): void {
+    // Visible windows can race. Speculative work must never repeatedly evict
+    // another tab's warm chunk, or supersede a foreground request loading.
+    if (request.priority < 1 && (this.active || this.starting || this.pending)) {
+      this.rejectRequest(request, 'cancelled');
+      return;
+    }
     if (this.active && request.priority < this.active.priority) {
       this.rejectRequest(request, 'cancelled');
       return;
@@ -215,16 +224,20 @@ export class TtsWorkerHost {
     this.worker.postMessage(workerMessage);
   }
 
-  private cancelSession(sid: string): void {
+  private cancelSession(sid: string, clientId?: number): void {
     if (!sid) return;
-    if (this.pending?.sid === sid) {
+    const matches = (job: { sid: string; clientId: number } | null) =>
+      job?.sid === sid && (clientId == null || job.clientId === clientId);
+    if (this.pending && matches(this.pending)) {
       this.pending.cancelled = true;
+      this.rejectRequest(this.pending, 'cancelled');
       this.pending = null;
     }
-    if (this.starting?.sid === sid) {
+    if (this.starting && matches(this.starting) && !this.starting.cancelled) {
       this.starting.cancelled = true;
+      this.rejectRequest(this.starting, 'cancelled');
     }
-    if (this.active?.sid === sid) {
+    if (this.active && matches(this.active)) {
       this.worker?.postMessage({ type: 'cancel' });
       this.rejectActive(this.active, 'cancelled');
     }

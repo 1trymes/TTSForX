@@ -39,6 +39,58 @@ class FakeWorker {
 const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 describe('TtsWorkerHost', () => {
+  it('does not let two tabs evict each other\'s background work', async () => {
+    const output: Array<Record<string, unknown>> = [];
+    const worker = new FakeWorker();
+    const host = new TtsWorkerHost(message => output.push(message), () => worker as unknown as Worker);
+    host.handleMessage({ type: 'generate', sid: 'a', id: 1, priority: 0.5 });
+    await tick();
+    host.handleMessage({ type: 'generate', sid: 'b', id: 1, priority: 0.5 });
+    expect(output.at(-1)).toMatchObject({ sid: 'b', message: 'cancelled' });
+    worker.emit({ type: 'ready' });
+    await tick();
+    host.handleMessage({ type: 'generate', sid: 'b', id: 2, priority: 0.5 });
+    await tick();
+    expect(worker.sent.filter(m => m.type === 'generate')).toHaveLength(1);
+    expect(worker.sent.some(m => m.type === 'cancel')).toBe(false);
+    host.dispose();
+  });
+
+  it('allows playback to preempt prefetch and ignores a stale request abort', async () => {
+    const output: Array<Record<string, unknown>> = [];
+    const worker = new FakeWorker();
+    const host = new TtsWorkerHost(message => output.push(message), () => worker as unknown as Worker);
+    host.handleMessage({ type: 'generate', sid: 'a', id: 1, priority: 0.5 });
+    await tick();
+    worker.emit({ type: 'ready' });
+    await tick();
+    host.handleMessage({ type: 'generate', sid: 'a', id: 2, priority: 1 });
+    await tick();
+    expect(worker.sent.slice(-2).map(m => m.type)).toEqual(['cancel', 'generate']);
+    const count = worker.sent.length;
+    host.handleMessage({ type: 'cancel', sid: 'a', id: 1 });
+    expect(worker.sent).toHaveLength(count);
+    host.handleMessage({ type: 'cancel', sid: 'a', id: 2 });
+    expect(worker.sent.at(-1)?.type).toBe('cancel');
+    expect(output.at(-1)).toMatchObject({ id: 2, message: 'cancelled' });
+    expect(worker.terminated).toBe(false);
+    host.dispose();
+  });
+
+  it('acknowledges cancellation during model loading and never starts that job', async () => {
+    const output: Array<Record<string, unknown>> = [];
+    const worker = new FakeWorker();
+    const host = new TtsWorkerHost(message => output.push(message), () => worker as unknown as Worker);
+    host.handleMessage({ type: 'generate', sid: 'a', id: 1, priority: 0.5 });
+    await tick();
+    host.handleMessage({ type: 'cancel', sid: 'a', id: 1 });
+    expect(output.at(-1)).toMatchObject({ id: 1, message: 'cancelled' });
+    worker.emit({ type: 'ready' });
+    await tick();
+    expect(worker.sent.some(m => m.type === 'generate')).toBe(false);
+    host.dispose();
+  });
+
   it('rewrites internal IDs and routes audio only to the requesting session', async () => {
     const output: Array<Record<string, unknown>> = [];
     const worker = new FakeWorker();

@@ -473,12 +473,21 @@ export async function alignWordsToAudio(
   sampleRate: number,
   language: string,
   onProgress?: (stage: string) => void,
+  cancelled?: () => boolean,
 ): Promise<WordCue[]> {
+  const checkpoint = async () => {
+    // Let the worker receive cancellation before another expensive CPU/GPU
+    // stage. A graph already submitted to WebGPU is not interruptible.
+    if (cancelled) await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    if (cancelled?.()) throw new Error('cancelled');
+  };
+  await checkpoint();
   const words = tokenizeWords(text);
   if (!words.length) return [];
   if (!samples.length) throw new Error('Word alignment received empty audio');
 
   const audio = resampleForAlignment(samples, sampleRate);
+  await checkpoint();
   if (!audio.length) throw new Error('Word alignment could not resample audio');
 
   const audioDuration = samples.length / sampleRate;
@@ -489,6 +498,7 @@ export async function alignWordsToAudio(
   }
 
   const sourceAligner = await loadWordAligner(onProgress);
+  await checkpoint();
   const tokenized = sourceAligner.tokenizer(text, {
     add_special_tokens: false,
   });
@@ -526,12 +536,14 @@ export async function alignWordsToAudio(
   const slicedAttentions: TensorLike[][] = [];
   let boundaryTensor: TensorLike | null = null;
   try {
+    await checkpoint();
     output = await sourceAligner.model.generate({
       inputs: processed.input_features,
       generation_config: generationConfig,
       decoder_input_ids: [...initTokens, ...textTokens, eosToken],
       ...generationOptions,
     });
+    await checkpoint();
     if (!output.cross_attentions?.length) {
       throw new Error('Word alignment model returned no cross-attention');
     }
