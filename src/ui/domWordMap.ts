@@ -170,7 +170,9 @@ export function buildDomWordsForRoots(
 }
 
 function normalizeWord(word: string): string {
-  return word.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+  // Speech preparation folds Unicode bold/fullwidth letters with NFKC.
+  // Fold the rendered words too, without changing their original DOM ranges.
+  return word.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
 }
 
 function looksLikeUrl(word: string): boolean {
@@ -193,8 +195,10 @@ export function alignPreparedWordsToDom(
     const preparedRaw = prepared[preparedIndex]!;
     const preparedToken = normalizeWord(preparedRaw);
     const wantsLink = preparedToken === 'link';
-    while (domIndex < dom.length) {
-      const visible = dom[domIndex]!.text;
+    // Only advance the shared cursor on a match. A missing word must not
+    // consume the remaining DOM and disable all following captions/picks.
+    for (let candidate = domIndex; candidate < dom.length; candidate++) {
+      const visible = dom[candidate]!.text;
       const domToken = normalizeWord(visible);
       const matches =
         (wantsLink && looksLikeUrl(visible)) ||
@@ -205,11 +209,10 @@ export function alignPreparedWordsToDom(
             (domToken.length >= 3 && preparedToken.includes(domToken)))) ||
         (!preparedToken && !domToken && preparedRaw === visible);
       if (matches) {
-        map[preparedIndex] = domIndex;
-        domIndex++;
+        map[preparedIndex] = candidate;
+        domIndex = candidate + 1;
         break;
       }
-      domIndex++;
     }
   }
   return map;

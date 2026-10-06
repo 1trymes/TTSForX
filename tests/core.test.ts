@@ -365,6 +365,42 @@ describe('playback controls and acoustic karaoke timing', () => {
     expect(preparedByDom.get(2)).toBe(2);
   });
 
+  it('keeps Unicode bold words on their original occurrence in long posts', () => {
+    // Opening of https://x.com/Voxyz_ai/status/2107184044228452491.
+    // The later plain "cache" must not steal the first bold word's cue.
+    const rendered =
+      'Highly recommend adding a 𝗰𝗮𝗰𝗵𝗲 𝗰𝗼𝘂𝗻𝘁𝗱𝗼𝘄𝗻 to your Claude Code status line.\n\n' +
+      'Simply put, every time you send a message, Claude Code sends the whole conversation to the model again. ' +
+      'The cache lets it skip reprocessing everything that came before, so replies come back faster and count less against your usage limits. ' +
+      'But the cache expires, and the first message after that makes it process 𝘁𝗵𝗲 𝘄𝗵𝗼𝗹𝗲 𝗰𝗼𝗻𝘃𝗲𝗿𝘀𝗮𝘁𝗶𝗼𝗻 𝗳𝗿𝗼𝗺 𝘀𝗰𝗿𝗮𝘁𝗰𝗵.';
+    const visible = rendered.split(/\s+/u).map(domWord);
+    const prepared = tokenizeWords(prepareTextForSpeech(rendered));
+    const mapped = alignPreparedWordsToDom(prepared, visible);
+
+    expect(mapped).toEqual(visible.map((_, index) => index));
+    expect(preparedIndexByDomIndex(mapped).get(4)).toBe(4);
+    expect(preparedIndexByDomIndex(mapped).get(5)).toBe(5);
+  });
+
+  it('matches compatibility letters and digits using speech normalization', () => {
+    const rendered = 'Ｆｕｌｌｗｉｄｔｈ ① ﬃ Ｃａｃｈｅ';
+    expect(
+      alignPreparedWordsToDom(
+        tokenizeWords(prepareTextForSpeech(rendered)),
+        rendered.split(' ').map(domWord),
+      ),
+    ).toEqual([0, 1, 2, 3]);
+  });
+
+  it('recovers after an unmapped word without losing the remaining post', () => {
+    expect(
+      alignPreparedWordsToDom(
+        ['Read', 'missing', 'the', 'cache', 'now'],
+        ['Read', 'the', 'cache', 'now'].map(domWord),
+      ),
+    ).toEqual([0, -1, 1, 2, 3]);
+  });
+
   it('accepts the first glyph edge only for the word actually under it', () => {
     const boxes = [
       { value: 'word', left: 100, right: 130, top: 50, bottom: 70 },
