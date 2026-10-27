@@ -13,6 +13,8 @@ vi.mock('../src/tts/settings', () => ({
 
 let engine: (typeof import('../src/tts/engine'))['engine'];
 let receive: (message: Record<string, unknown>) => void;
+let disconnected: () => void;
+let errorReads: number;
 let sent: Record<string, unknown>[];
 const flush = async () => { await vi.advanceTimersByTimeAsync(0); };
 
@@ -21,11 +23,12 @@ beforeEach(async () => {
   vi.resetModules();
   mocks.loadSettings.mockResolvedValue({});
   sent = [];
+  errorReads = 0;
   vi.stubGlobal('window', { setTimeout, clearTimeout });
-  vi.stubGlobal('browser', { runtime: { connect: () => ({
+  vi.stubGlobal('browser', { runtime: { get lastError() { errorReads++; return { message: 'port closed' }; }, connect: () => ({
     postMessage: (message: Record<string, unknown>) => sent.push(message),
     onMessage: { addListener: (listener: typeof receive) => { receive = listener; } },
-    onDisconnect: { addListener: () => {} },
+    onDisconnect: { addListener: (listener: () => void) => { disconnected = listener; } },
     disconnect: () => {},
   }) } });
   engine = (await import('../src/tts/engine')).engine;
@@ -33,6 +36,28 @@ beforeEach(async () => {
 afterEach(() => { engine.dispose(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe('speculative generation cancellation', () => {
+  it('does not open a port merely to stop idle playback', () => {
+    engine.stop();
+    expect(sent).toEqual([]);
+  });
+
+  it('acknowledges a disconnect, rejects interrupted work and reconnects on the next request', async () => {
+    const first = engine.synthesize('first post', { silent: true }).catch(e => e.message);
+    await flush();
+    receive({ type: 'offscreen-ready' });
+    await flush();
+    disconnected();
+    expect(errorReads).toBe(1);
+    expect(await first).toBe('TTS connection lost');
+    const next = engine.synthesize('next post', { silent: true }).catch(e => e.message);
+    await flush();
+    expect(sent.at(-1)).toMatchObject({ type: 'ensure-offscreen' });
+    receive({ type: 'offscreen-ready' });
+    await flush();
+    expect(sent.at(-1)).toMatchObject({ type: 'generate', text: 'next post' });
+    receive({ type: 'error', id: sent.at(-1)!.id, message: 'cancelled' });
+    await next;
+  });
   it('starts explicit playback without waiting for the prefetch cooldown', async () => {
     class AudioContextStub {
       state = 'running';

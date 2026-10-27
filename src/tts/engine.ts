@@ -32,6 +32,7 @@ import {
 import { DEFAULT_VOICE } from './voices';
 import { applyMediaPlaybackRate, pcmToWavUrl } from './wav';
 import { decodePcm16Base64 } from './pcmTransport';
+import { acknowledgeDisconnectError } from '../runtime/disconnect';
 
 export interface PlayOptions {
   voice?: string;
@@ -219,6 +220,7 @@ class TtsEngine {
       this.onBusMessage(msg as Record<string, unknown>),
     );
     port.onDisconnect.addListener(() => {
+      acknowledgeDisconnectError();
       if (this.port !== port) return;
       this.port = null;
       this.resetBackend('TTS connection lost');
@@ -302,7 +304,7 @@ class TtsEngine {
   private cancelGeneration(reason = 'cancelled'): void {
     this.generationEpoch++;
     try {
-      this.post({ type: 'cancel' });
+      this.port?.postMessage({ type: 'cancel' });
     } catch {
       /* port may not be up yet */
     }

@@ -78,6 +78,11 @@ export function startPrefetch(ctx: ContentScriptContext): void {
   ctx.addEventListener(window, 'focus', activity);
   ctx.addEventListener(window, 'wxt:locationchange', activity);
   ctx.addEventListener(window, 'pagehide', () => scheduler?.pause());
+  ctx.addEventListener(window, 'pageshow', (event) => {
+    if (!(event as PageTransitionEvent).persisted) return;
+    connectionEnded = false;
+    scheduler?.activity();
+  });
   ctx.onInvalidated(stopPrefetch);
 }
 

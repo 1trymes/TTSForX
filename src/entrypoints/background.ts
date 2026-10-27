@@ -4,6 +4,7 @@
  */
 import type { TtsWorkerHost } from '../tts/workerHost';
 import { debugHandledFailure } from '../diagnostics';
+import { acknowledgeDisconnectError } from '../runtime/disconnect';
 
 export default defineBackground(() => {
   type Pipe = {
@@ -161,6 +162,7 @@ export default defineBackground(() => {
 
       port.onMessage.addListener(routeBackendMessage);
       port.onDisconnect.addListener(() => {
+        acknowledgeDisconnectError();
         if (offscreenPort !== port) return;
         offscreenPort = null;
         for (const pipe of sessions.values()) {
@@ -239,6 +241,7 @@ export default defineBackground(() => {
       });
 
       port.onDisconnect.addListener(() => {
+        acknowledgeDisconnectError();
         if (slot.content !== port) return;
         slot.content = undefined;
         sessions.delete(sid);

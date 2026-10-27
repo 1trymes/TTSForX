@@ -99,6 +99,20 @@ afterEach(() => {
 });
 
 describe('prefetch integration', () => {
+  it('resumes prefetch after a cached page returns following a disconnect', async () => {
+    api.startPrefetch(context);
+    api.armPrefetch();
+    const post = article(1);
+    api.watchArticle(post);
+    expose([post]);
+    mock.synthesize.mockRejectedValueOnce(new Error('TTS connection lost'));
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(api.prefetchDebug().connectionEnded).toBe(true);
+    win.dispatchEvent(Object.assign(new Event('pageshow'), { persisted: true }));
+    expect(api.prefetchDebug().connectionEnded).toBe(false);
+    await vi.advanceTimersByTimeAsync(5250);
+    expect(mock.cached.size).toBe(1);
+  });
   it('uses IO instead of a synchronous geometry read when mounting', () => {
     api.startPrefetch(context);
     api.watchArticle(article(1));
