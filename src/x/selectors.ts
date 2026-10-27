@@ -1,16 +1,10 @@
-/**
- * Centralized X.com DOM selectors.
- *
- * X.com exposes stable `data-testid` hooks that have remained constant for
- * years, even as class names are hashed and rotated on every deploy. We anchor
- * to those exclusively so the extension survives X's daily CSS churn. When X
- * eventually renames a testid, this is the single file to update.
- */
+/** Selectors for both the older and current X post layouts. */
 export const SELECTORS = {
   /** A single tweet (post) — the top-level article. */
-  tweet: 'article[data-testid="tweet"]',
+  tweet: 'article[data-testid="tweet"], article:not([data-testid])',
   /** The post's text node(s). Quote-tweets and threads may contain several. */
   tweetText: '[data-testid="tweetText"]',
+  modernTweetText: 'div[dir="auto"].whitespace-pre-wrap.wrap-break-word',
   /** Quoted post card (exclude its text from read-aloud). */
   quoteTweet: '[data-testid="quoteTweet"]',
   /** The reply/repost/like/share action row. */

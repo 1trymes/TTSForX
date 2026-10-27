@@ -26,6 +26,11 @@ function isForeignTextRoot(
   // Quotes are sometimes role=link islands instead of nested articles.
   let current: HTMLElement | null = node.parentElement;
   while (current && current !== article) {
+    // New X quote cards are links to another status inside the owning post.
+    if (
+      current.getAttribute('role') === 'link' &&
+      /\/status\/\d+/.test(current.getAttribute('data-href') ?? '')
+    ) return true;
     if (
       current.getAttribute('role') === 'link' &&
       current.querySelector('[data-testid="User-Name"]')
@@ -64,6 +69,11 @@ export function readingTextRoots(
     if (!isForeignTextRoot(node, article)) {
       roots.push(node);
       break;
+    }
+  }
+  if (!roots.length) {
+    for (const node of article.querySelectorAll<HTMLElement>(SELECTORS.modernTweetText)) {
+      if (!isForeignTextRoot(node, article)) return [node];
     }
   }
   return roots;

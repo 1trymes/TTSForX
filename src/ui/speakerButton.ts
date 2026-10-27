@@ -120,8 +120,10 @@ export function clearStaleSpeakerDom(): void {
 
 function findActionBar(article: HTMLElement): HTMLElement | null {
   const reply = article.querySelector<HTMLElement>(SELECTORS.replyButton);
+  const modernReply = article.querySelector<HTMLElement>('[data-engagement-action="reply"]');
   return (
     reply?.closest<HTMLElement>(SELECTORS.actionBarGroup) ??
+    modernReply?.parentElement ??
     article.querySelector<HTMLElement>(SELECTORS.actionBarGroup)
   );
 }
@@ -142,6 +144,17 @@ function findGrokButton(article: HTMLElement): HTMLElement | null {
 function findGrokCaretRow(
   article: HTMLElement,
 ): { row: HTMLElement; grokCell: Element } | null {
+  // The current X layout exposes the More icon through an SVG symbol rather
+  // than a test id. Its immediate parent is the compact header actions row.
+  const modernMore = article.querySelector('use[href="#icon-more-dots-hor"]')
+    ?.closest<HTMLElement>('button');
+  const modernRow = modernMore?.parentElement;
+  if (modernMore && modernRow && !modernRow.querySelector(SELECTORS.modernTweetText)) {
+    const firstAction = [...modernRow.children].find(
+      (child) => !child.classList.contains('ttsx-action') && (child.matches('button') || child.querySelector('button')),
+    );
+    return { row: modernRow, grokCell: firstAction ?? modernMore };
+  }
   const caret = article.querySelector('[data-testid="caret"]');
   if (!caret) return null;
 
@@ -457,7 +470,7 @@ function mountInActionBar(article: HTMLElement): HTMLButtonElement | null {
   const { cell, button } = createActionCell('bar');
   wirePress(button, article);
 
-  const bookmark = bar.querySelector('[data-testid="bookmark"]');
+  const bookmark = bar.querySelector('[data-testid="bookmark"], [data-engagement-action="bookmark"]');
   const bookmarkCell = barCellFor(bar, bookmark);
   if (bookmarkCell) {
     syncCellLayout(cell, bookmarkCell);
@@ -485,6 +498,12 @@ function mountInActionBar(article: HTMLElement): HTMLButtonElement | null {
  * early bar mount must move up once the header row exists.
  */
 export function mountSpeakerButton(article: HTMLElement): void {
+  // Plain articles in the current layout must have their own engagement
+  // controls; don't mount on unrelated articles or nested quote cards.
+  if (article.getAttribute('data-testid') !== 'tweet') {
+    const reply = article.querySelector('[data-engagement-action="reply"]');
+    if (!reply || reply.closest('article') !== article) return;
+  }
   // Media / emoji / URL-only posts — no speaker (nothing useful to read).
   // Truncated posts still count: show-more expands on play.
   if (!hasSpeakableText(extractTweetText(article))) {
