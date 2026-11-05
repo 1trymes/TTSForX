@@ -651,6 +651,17 @@ export function setButtonState(
   }
 }
 
+/** Keep failed playback retryable and expose its reason on the speaker. */
+export function setButtonError(
+  button: HTMLButtonElement | null,
+  message: string,
+): void {
+  if (!button) return;
+  setButtonState(button, 'idle');
+  button.setAttribute('title', `${message} Click to retry.`);
+  button.setAttribute('aria-label', `Read aloud unavailable. ${message}`);
+}
+
 const HINT_KEY = 'ttsx.holdHint';
 
 /** One-time tip near the first mounted speaker: hold opens settings. */

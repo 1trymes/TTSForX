@@ -10,6 +10,6 @@ port.onDisconnect.addListener(() => {
   acknowledgeDisconnectError();
   host.dispose();
 });
-host.preload();
-
+// A live port means the document is ready to receive requests. The worker
+// starts on load/generate, not merely because this document was created.
 port.postMessage({ type: 'offscreen-ready' });

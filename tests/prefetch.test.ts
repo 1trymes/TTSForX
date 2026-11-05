@@ -3,12 +3,12 @@ import type { ContentScriptContext } from 'wxt/utils/content-script-context';
 
 const mock = vi.hoisted(() => ({
   synthesize: vi.fn(), preload: vi.fn(), cached: new Set<string>(),
-  status: 'idle', stateListener: (_state: { status: string }) => {},
+  status: 'idle', modelReady: true, stateListener: (_state: { status: string }) => {},
 }));
 vi.mock('../src/ui/speakerButton', () => ({ extractTweetText: (a: { text: string }) => a.text }));
 vi.mock('../src/tts/engine', () => ({ engine: {
   synthesize: mock.synthesize, preload: mock.preload,
-  getState: () => ({ status: mock.status }), isModelReady: () => true,
+  getState: () => ({ status: mock.status }), isModelReady: () => mock.modelReady,
   onState: (listener: typeof mock.stateListener) => { mock.stateListener = listener; return () => {}; },
 } }));
 vi.mock('../src/tts/settings', () => ({
@@ -56,6 +56,7 @@ beforeEach(async () => {
   starts = [];
   mock.cached.clear();
   mock.status = 'idle';
+  mock.modelReady = true;
   mock.preload.mockClear();
   mock.synthesize.mockReset();
   mock.synthesize.mockImplementation((text: string, options: { signal?: AbortSignal }) => new Promise((resolve, reject) => {
@@ -99,6 +100,71 @@ afterEach(() => {
 });
 
 describe('prefetch integration', () => {
+  it('does not initialize the GPU in a cold tab, and warms after successful playback', async () => {
+    mock.modelReady = false;
+    api.startPrefetch(context);
+    const post = article(1);
+    api.watchArticle(post);
+    expose([post]);
+    // Even an explicit warm request must not cold-start the GPU.
+    api.armPrefetch();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(mock.synthesize).not.toHaveBeenCalled();
+    expect(mock.preload).not.toHaveBeenCalled();
+    expect(geometryReads).toBe(0);
+
+    mock.modelReady = true;
+    mock.status = 'playing';
+    mock.stateListener({ status: 'playing' });
+    mock.status = 'idle';
+    mock.stateListener({ status: 'idle' });
+    await vi.advanceTimersByTimeAsync(1750);
+    expect(mock.synthesize).toHaveBeenCalledOnce();
+  });
+
+  it('arms background work only after this tab successfully starts speech', async () => {
+    api.startPrefetch(context);
+    const post = article(1);
+    api.watchArticle(post);
+    expose([post]);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(starts).toHaveLength(0);
+
+    mock.status = 'playing';
+    mock.stateListener({ status: 'playing' });
+    mock.status = 'idle';
+    mock.stateListener({ status: 'idle' });
+    await vi.advanceTimersByTimeAsync(1750);
+    expect(mock.cached.size).toBe(1);
+  });
+
+  it('stops automatic retries after a GPU failure until speech succeeds again', async () => {
+    api.startPrefetch(context);
+    api.armPrefetch();
+    const post = article(1);
+    api.watchArticle(post);
+    expose([post]);
+    mock.synthesize.mockRejectedValueOnce(new Error('Supertonic 3 could not acquire a WebGPU adapter.'));
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(mock.synthesize).toHaveBeenCalledOnce();
+
+    for (let minute = 0; minute < 3; minute++) {
+      doc.dispatchEvent(new Event('scroll'));
+      expose([post]);
+      mock.stateListener({ status: 'idle' });
+      await vi.advanceTimersByTimeAsync(60_000);
+    }
+    expect(mock.synthesize).toHaveBeenCalledOnce();
+
+    mock.status = 'playing';
+    mock.stateListener({ status: 'playing' });
+    mock.status = 'idle';
+    mock.stateListener({ status: 'idle' });
+    await vi.advanceTimersByTimeAsync(1750);
+    expect(mock.synthesize).toHaveBeenCalledTimes(2);
+    expect(mock.cached.size).toBe(1);
+  });
+
   it('resumes prefetch after a cached page returns following a disconnect', async () => {
     api.startPrefetch(context);
     api.armPrefetch();

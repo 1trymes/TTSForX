@@ -5,6 +5,41 @@ afterEach(() => {
   vi.resetModules();
 });
 
+it('creates the offscreen host only when a content request needs speech', async () => {
+  let onConnect!: (port: unknown) => void;
+  let onMessage!: (message: unknown) => void;
+  const startup: Array<() => void> = [];
+  const createDocument = vi.fn(async () => {});
+  const contentMessages: unknown[] = [];
+  vi.stubGlobal('defineBackground', (start: () => void) => start);
+  vi.stubGlobal('browser', {
+    offscreen: { createDocument },
+    runtime: {
+      getContexts: async () => [],
+      onConnect: { addListener: (fn: typeof onConnect) => { onConnect = fn; } },
+      onInstalled: { addListener: (fn: () => void) => startup.push(fn) },
+      onStartup: { addListener: (fn: () => void) => startup.push(fn) },
+    },
+  });
+  const background = await import('../src/entrypoints/background');
+  (background.default as unknown as () => void)();
+  for (const start of startup) start();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  expect(createDocument).not.toHaveBeenCalled();
+
+  onConnect({
+    name: 'ttsx-content:session',
+    postMessage: (message: unknown) => contentMessages.push(message),
+    onMessage: { addListener: (fn: typeof onMessage) => { onMessage = fn; } },
+    onDisconnect: { addListener() {} },
+    disconnect() {},
+  });
+  onMessage({ type: 'ensure-offscreen' });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  expect(createDocument).toHaveBeenCalledOnce();
+  expect(contentMessages).toContainEqual({ type: 'offscreen-ensured' });
+});
+
 it('acknowledges port errors and cancels the disconnected content session', async () => {
   let onConnect!: (port: unknown) => void;
   let onDisconnect!: () => void;

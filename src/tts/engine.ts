@@ -1607,6 +1607,9 @@ class TtsEngine {
       case 'error': {
         const id = data.id != null ? Number(data.id) : null;
         const message = String(data.message ?? 'Unknown error');
+        // An unscoped worker error reports failed model initialization.
+        // Clear the old ready flag so background work cannot cold-start it.
+        if (id == null) this.modelReady = false;
         if (id == null && this.rejectReady) {
           const reject = this.rejectReady;
           this.clearReadyWait();

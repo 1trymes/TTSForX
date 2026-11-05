@@ -39,6 +39,59 @@ class FakeWorker {
 const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 describe('TtsWorkerHost', () => {
+  it('lets an explicit request recover after a failed GPU load', async () => {
+    const output: Array<Record<string, unknown>> = [];
+    const workers: FakeWorker[] = [];
+    const host = new TtsWorkerHost(message => output.push(message), () => {
+      const worker = new FakeWorker();
+      workers.push(worker);
+      return worker as unknown as Worker;
+    });
+    try {
+      host.handleMessage({ type: 'generate', sid: 'a', id: 1, priority: 1 });
+      await tick();
+      workers[0]!.emit({ type: 'error', message: 'GPU acceleration is unavailable.' });
+      await tick();
+      expect(workers[0]!.terminated).toBe(true);
+      expect(output).toContainEqual({ type: 'error', sid: 'a', id: 1, message: 'GPU acceleration is unavailable.' });
+      await tick();
+      expect(workers).toHaveLength(1);
+
+      host.handleMessage({ type: 'generate', sid: 'a', id: 2, priority: 1 });
+      await tick();
+      expect(workers).toHaveLength(2);
+      workers[1]!.emit({ type: 'ready', device: 'webgpu' });
+      await tick();
+      expect(workers[1]!.sent.at(-1)).toMatchObject({ type: 'generate' });
+    } finally {
+      host.dispose();
+    }
+  });
+
+  it('reports the resident model as ready when speech starts in a later tab', async () => {
+    const output: Array<Record<string, unknown>> = [];
+    const worker = new FakeWorker();
+    const createWorker = vi.fn(() => worker as unknown as Worker);
+    const host = new TtsWorkerHost(message => output.push(message), createWorker);
+    try {
+      host.handleMessage({ type: 'generate', sid: 'a', id: 1, priority: 1 });
+      await tick();
+      worker.emit({ type: 'ready', device: 'webgpu' });
+      await tick();
+      const firstId = worker.sent.at(-1)!.id;
+      worker.emit({ type: 'audio-done', id: firstId });
+      output.length = 0;
+
+      host.handleMessage({ type: 'generate', sid: 'b', id: 1, priority: 1 });
+      await tick();
+      expect(createWorker).toHaveBeenCalledOnce();
+      expect(output).toContainEqual({ type: 'ready', sid: 'b', device: 'webgpu' });
+      expect(worker.sent.filter(message => message.type === 'generate')).toHaveLength(2);
+    } finally {
+      host.dispose();
+    }
+  });
+
   it('does not let two tabs evict each other\'s background work', async () => {
     const output: Array<Record<string, unknown>> = [];
     const worker = new FakeWorker();

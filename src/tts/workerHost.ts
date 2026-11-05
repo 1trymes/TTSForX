@@ -221,6 +221,9 @@ export class TtsWorkerHost {
     };
     delete workerMessage.sid;
     delete workerMessage.priority;
+    // A tab connecting after the original load never saw the shared ready
+    // event. Confirm readiness before its generation so it can warm later.
+    this.safeSend({ type: 'ready', sid: request.sid, device: 'webgpu' });
     this.worker.postMessage(workerMessage);
   }
 

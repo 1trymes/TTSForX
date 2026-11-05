@@ -9,7 +9,7 @@ import { cacheStats } from '../tts/cache';
 import { engine } from '../tts/engine';
 import { locateWords } from '../tts/karaokeCues';
 import { normalizeTtsLanguage } from '../tts/languages';
-import { armPrefetch, prefetchDebug, startPrefetch } from '../tts/prefetch';
+import { prefetchDebug, startPrefetch } from '../tts/prefetch';
 import { prepareTextForSpeech } from '../tts/prepareText';
 import {
   disposeSettings,
@@ -38,6 +38,7 @@ import {
   extractTweetText,
   registerPlayHandler,
   registerRemountHandler,
+  setButtonError,
   setButtonState,
 } from '../ui/speakerButton';
 import { applyTheme, syncActionIconColor } from '../ui/theme';
@@ -89,8 +90,7 @@ export default defineContentScript({
 
     startPrefetch(ctx);
     startObserver(ctx);
-    // Warm the model after the feed settles — immediate arm fights first paint.
-    ctx.setTimeout(() => armPrefetch(), 2500);
+    // Prefetch arms after successful playback; opening X must not probe the GPU.
     ctx.setTimeout(syncActionIconColor, 800);
     ctx.setTimeout(syncActionIconColor, 2500);
 
@@ -235,7 +235,7 @@ export default defineContentScript({
             request.article.querySelector<HTMLButtonElement>(
               '.ttsx-speaker-btn',
             ) ?? request.button;
-          setButtonState(live, 'idle');
+          setButtonError(live, message);
           activeBtn = null;
           activeArticle = null;
           playbackMode = null;
@@ -380,7 +380,7 @@ export default defineContentScript({
       } else if (state.status === 'paused') {
         setButtonState(activeBtn, 'paused', state.progress);
       } else if (state.status === 'error') {
-        setButtonState(activeBtn, 'idle');
+        setButtonError(activeBtn, state.message);
         debugHandledFailure('engine error', state.message);
         activeBtn = null;
         activeArticle = null;

@@ -30,7 +30,7 @@ function userBusy(): boolean {
 
 function canRun(): boolean {
   return !!context && !context.isInvalid && !connectionEnded && armed &&
-    !document.hidden && document.hasFocus() && !userBusy();
+    engine.isModelReady() && !document.hidden && document.hasFocus() && !userBusy();
 }
 
 export function startPrefetch(ctx: ContentScriptContext): void {
@@ -63,7 +63,10 @@ export function startPrefetch(ctx: ContentScriptContext): void {
     }
     scheduler?.request();
   });
-  removeEngineListener = engine.onState(() => {
+  removeEngineListener = engine.onState((state) => {
+    // Warm only an engine the user has already used successfully in this tab.
+    // A later successful play also re-enables work suspended after a failure.
+    if (state.status === 'playing' && engine.isModelReady()) armed = true;
     if (userBusy()) scheduler?.pause();
     else scheduler?.request();
   });
@@ -140,8 +143,12 @@ async function pump(signal: AbortSignal): Promise<'more' | 'done' | 'retry'> {
       connectionEnded = true;
       return 'done';
     }
-    if (!/cancelled/i.test(message)) debugHandledFailure('prefetch failed', error);
-    return 'retry';
+    if (/cancelled/i.test(message)) return 'retry';
+    // A failed GPU/model load must not spawn a fresh worker every 30 seconds.
+    // Only successful foreground speech re-arms speculative work.
+    armed = false;
+    debugHandledFailure('prefetch failed', error);
+    return 'done';
   } finally {
     activeArticle = null;
   }

@@ -57,7 +57,6 @@ export default defineBackground(() => {
     try {
       const { TtsWorkerHost } = await import('../tts/workerHost');
       backgroundHost = new TtsWorkerHost(routeBackendMessage);
-      backgroundHost.preload();
       for (const pipe of sessions.values()) {
         postToContent(pipe.content, { type: 'offscreen-ready' });
       }
@@ -67,13 +66,6 @@ export default defineBackground(() => {
       debugHandledFailure('Firefox background worker failed', error);
       return false;
     }
-  }
-
-  /** Create offscreen + start model download without waiting for a page. */
-  function warmOffscreen(): void {
-    void ensureOffscreen().catch((error) => {
-      debugHandledFailure('offscreen warm failed', error);
-    });
   }
 
   function sessionPipe(sid: string): Pipe {
@@ -228,7 +220,6 @@ export default defineBackground(() => {
                 message: 'TTS backend disconnected',
               });
             }
-            warmOffscreen();
           }
         } catch (error) {
           postToContent(port, {
@@ -260,9 +251,7 @@ export default defineBackground(() => {
     }
   });
 
-  // Install / browser start: spin up offscreen so the model downloads in the
-  // background instead of punishing the first tweet tap.
-  browser.runtime.onInstalled.addListener(() => warmOffscreen());
-  browser.runtime.onStartup.addListener(() => warmOffscreen());
-  warmOffscreen();
+  // Create the host only through ensure-offscreen on an explicit speech
+  // request. Browser startup can precede GPU availability; probing there
+  // produces native "No available adapters" warnings even without an X tab.
 });

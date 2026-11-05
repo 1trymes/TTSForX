@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { mountSpeakerButton, extractTweetText, registerPlayHandler } from '../src/ui/speakerButton';
+import { mountSpeakerButton, extractTweetText, registerPlayHandler, setButtonError, setButtonState } from '../src/ui/speakerButton';
 import { SELECTORS } from '../src/x/selectors';
 
 function modernPost(body: string, header = true): HTMLElement {
@@ -40,6 +40,19 @@ describe('current X post layout', () => {
     const article = modernPost(modernText('A reply.'), false);
     mountSpeakerButton(article);
     expect(article.querySelector('.engagement .ttsx-speaker-btn')).not.toBeNull();
+  });
+
+  it('explains failed speech on the speaker and clears the message on retry', () => {
+    const article = modernPost(modernText('A readable post.'));
+    mountSpeakerButton(article);
+    const button = article.querySelector<HTMLButtonElement>('.ttsx-speaker-btn')!;
+    setButtonError(button, 'GPU acceleration is unavailable.');
+    expect(button.title).toBe('GPU acceleration is unavailable. Click to retry.');
+    expect(button.getAttribute('aria-label')).toContain('GPU acceleration is unavailable.');
+    expect(button.disabled).toBe(false);
+    setButtonState(button, 'loading');
+    expect(button.title).toBe('Loading voice…');
+    expect(button.getAttribute('aria-label')).toBe('Loading voice…');
   });
 
   it('never reads a quoted post as the parent post', () => {

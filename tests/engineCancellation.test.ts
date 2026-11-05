@@ -41,6 +41,29 @@ describe('speculative generation cancellation', () => {
     expect(sent).toEqual([]);
   });
 
+  it('clears model readiness after a GPU load failure and permits a manual retry', async () => {
+    const first = engine.synthesize('first post', { silent: true }).catch(e => e.message);
+    await flush();
+    receive({ type: 'offscreen-ready' });
+    await flush();
+    const firstId = sent.at(-1)!.id;
+    receive({ type: 'ready', device: 'webgpu' });
+    expect(engine.isModelReady()).toBe(true);
+    receive({ type: 'error', message: 'GPU acceleration is unavailable.' });
+    expect(engine.isModelReady()).toBe(false);
+    receive({ type: 'error', id: firstId, message: 'GPU acceleration is unavailable.' });
+    expect(await first).toBe('GPU acceleration is unavailable.');
+
+    const retry = engine.synthesize('manual retry', { silent: false }).catch(e => e.message);
+    await flush();
+    const next = sent.at(-1)!;
+    expect(next).toMatchObject({ type: 'generate', priority: 1, text: 'manual retry' });
+    receive({ type: 'ready', device: 'webgpu' });
+    expect(engine.isModelReady()).toBe(true);
+    receive({ type: 'error', id: next.id, message: 'cancelled' });
+    await retry;
+  });
+
   it('acknowledges a disconnect, rejects interrupted work and reconnects on the next request', async () => {
     const first = engine.synthesize('first post', { silent: true }).catch(e => e.message);
     await flush();

@@ -487,9 +487,17 @@ async function configureWebGpuRuntime(): Promise<void> {
   if (!gpu) {
     throw new Error('Supertonic 3 requires WebGPU in this browser.');
   }
-  const adapter = await gpu.requestAdapter();
+  const unavailableMessage =
+    'GPU acceleration is unavailable. Restart your browser and try again. ' +
+    'If this continues, check hardware acceleration in your browser settings.';
+  let adapter: WebGpuAdapter | null;
+  try {
+    adapter = await gpu.requestAdapter();
+  } catch (cause) {
+    throw new Error(unavailableMessage, { cause });
+  }
   if (!adapter) {
-    throw new Error('Supertonic 3 could not acquire a WebGPU adapter.');
+    throw new Error(unavailableMessage);
   }
 
   // Reuse the adapter acquired above. Otherwise ONNX Runtime performs a
