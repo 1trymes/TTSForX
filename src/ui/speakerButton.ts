@@ -133,8 +133,8 @@ function findActionBar(article: HTMLElement): HTMLElement | null {
  * Must be a tight actions-only row — never a parent that also owns the
  * display name or tweet body (inserting there blows vertical spacing).
  */
-function findGrokButton(article: HTMLElement): HTMLElement | null {
-  for (const el of article.querySelectorAll<HTMLElement>('a, button, div[role="button"]')) {
+function findGrokButton(row: HTMLElement): HTMLElement | null {
+  for (const el of row.querySelectorAll<HTMLElement>('a, button, div[role="button"]')) {
     const label = `${el.getAttribute('aria-label') || ''} ${el.getAttribute('href') || ''}`;
     if (/grok/i.test(label)) return el;
   }
@@ -158,13 +158,10 @@ function findGrokCaretRow(
   const caret = article.querySelector('[data-testid="caret"]');
   if (!caret) return null;
 
-  const grokEl = findGrokButton(article);
-  if (!grokEl) return null;
-
   let cur: HTMLElement | null = caret.parentElement;
   let best: { row: HTMLElement; grokCell: Element } | null = null;
   for (let i = 0; i < 8 && cur && cur !== article; i++) {
-    if (cur.contains(grokEl) && cur.contains(caret) && cur.children.length >= 2) {
+    if (cur.children.length >= 2) {
       // Reject rows that participate in the author/body column.
       if (
         cur.querySelector('[data-testid="User-Name"]') ||
@@ -173,7 +170,9 @@ function findGrokCaretRow(
         cur = cur.parentElement;
         continue;
       }
-      const grokCell = barCellFor(cur, grokEl);
+      // Search only this actions row. On Grok-authored posts the profile and
+      // avatar links also point to /grok and occur before the real control.
+      const grokCell = barCellFor(cur, findGrokButton(cur));
       if (grokCell) {
         // Prefer the shallowest (tightest) safe row.
         best = { row: cur, grokCell };
